@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Sistema de Gestão</title>
+    <style>
+        /* Estilos do login */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
+        }
+        .login-container { width: 100%; max-width: 400px; }
+        .login-box { 
+            background: white; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
+            overflow: hidden; animation: fadeIn 0.5s ease-out;
+        }
+        .login-header { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; 
+            padding: 30px 20px; text-align: center;
+        }
+        .login-form { padding: 30px 20px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: 600; color: #333; }
+        .form-group input { 
+            width: 100%; padding: 12px 15px; border: 2px solid #e1e5e9; border-radius: 6px; 
+            font-size: 14px; transition: border-color 0.3s ease;
+        }
+        .form-group input:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,0.1); }
+        .login-btn { 
+            width: 100%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; 
+            border: none; padding: 12px; border-radius: 6px; font-size: 16px; font-weight: 600; 
+            cursor: pointer; transition: transform 0.2s ease;
+        }
+        .login-btn:hover { transform: translateY(-2px); }
+        .login-btn.loading { opacity: 0.7; pointer-events: none; }
+        .message { padding: 15px; margin: 20px; border-radius: 6px; text-align: center; display: none; }
+        .message.error { background-color: #fee; color: #c33; border: 1px solid #fcc; }
+        .message.success { background-color: #efe; color: #363; border: 1px solid #cfc; }
+        .message.info { background-color: #eef; color: #336; border: 1px solid #ccf; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-box">
+            <div class="login-header">
+                <h1>Sistema de Gestão</h1>
+                <p>Faça login para acessar o sistema</p>
+            </div>
+            
+            <form id="login-form" class="login-form">
+                <div class="form-group">
+                    <label for="username">Usuário</label>
+                    <input type="text" id="username" name="username" required placeholder="Digite seu usuário" autocomplete="username">
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">Senha</label>
+                    <input type="password" id="password" name="password" required placeholder="Digite sua senha" autocomplete="current-password">
+                </div>
+                
+                <button type="submit" class="login-btn">Entrar</button>
+            </form>
+            
+            <div id="login-message" class="message"></div>
+            
+            <div class="login-footer">
+                <p>© 2024 Sistema de Gestão. Todos os direitos reservados.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Incluir primeiro o Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Incluir seu arquivo supabase.js -->
+    <script src="scripts/supabase.js"></script>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const loginForm = document.getElementById('login-form');
+            const messageDiv = document.getElementById('login-message');
+            const usernameInput = document.getElementById('username');
+            const passwordInput = document.getElementById('password');
+            
+            // Limpar campos
+            usernameInput.value = '';
+            passwordInput.value = '';
+            
+            // Verificar se já está logado
+            async function checkIfLoggedIn() {
+                try {
+                    const user = await checkAuth();
+                    if (user) {
+                        window.location.href = 'dashboard.html';
+                    }
+                } catch (error) {
+                    console.log('Usuário não logado:', error);
+                }
+            }
+            
+            checkIfLoggedIn();
+
+            if (loginForm) {
+                loginForm.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    
+                    const username = usernameInput.value.trim();
+                    const password = passwordInput.value;
+                    const loginBtn = this.querySelector('button[type="submit"]');
+                    
+                    if (!username || !password) {
+                        showMessage('Por favor, preencha todos os campos', 'error');
+                        return;
+                    }
+                    
+                    loginBtn.classList.add('loading');
+                    loginBtn.textContent = 'Entrando...';
+                    hideMessage();
+                    
+                    try {
+                        // Usar função de login com fallback
+                        const user = await customLogin(username, password);
+                        showMessage(`Bem-vindo, ${user.username}!`, 'success');
+                        
+                        // Redirecionar após login bem-sucedido
+                        setTimeout(() => {
+                            window.location.href = 'dashboard.html';
+                        }, 1000);
+                        
+                    } catch (error) {
+                        showMessage(error.message || 'Erro ao fazer login', 'error');
+                        console.error('Erro no login:', error);
+                    } finally {
+                        loginBtn.classList.remove('loading');
+                        loginBtn.textContent = 'Entrar';
+                    }
+                });
+            }
+            
+            function showMessage(message, type) {
+                if (messageDiv) {
+                    messageDiv.textContent = message;
+                    messageDiv.className = `message ${type}`;
+                    messageDiv.style.display = 'block';
+                    
+                    // Não auto-esconder mensagens de erro
+                    if (type !== 'error') {
+                        setTimeout(() => {
+                            if (messageDiv.textContent === message) {
+                                messageDiv.style.display = 'none';
+                            }
+                        }, 3000);
+                    }
+                }
+            }
+
+            function hideMessage() {
+                if (messageDiv) {
+                    messageDiv.style.display = 'none';
+                }
+            }
+            
+            // Focar no campo de usuário ao carregar
+            setTimeout(() => {
+                usernameInput.focus();
+            }, 100);
+        });
+
+        // Função para logout
+        window.handleLogout = async function() {
+            try {
+                await customLogout();
+                window.location.href = 'index.html';
+            } catch (error) {
+                console.error('Erro ao fazer logout:', error);
+            }
+        };
+    </script>
+</body>
+</html>

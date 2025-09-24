@@ -1,0 +1,65 @@
+<!-- Atualize o dashboard.html com esta estrutura -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Escalas - Igreja</title>
+    <link rel="stylesheet" href="styles/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+    <div id="dashboard-page">
+        <header class="header">
+            <div class="header-top">
+                <h1>Sistema de Escalas</h1>
+                <div class="user-container">
+                    <span class="welcome-message">Olá, <strong id="user-name">Usuário</strong></span>
+                    <button id="logout-btn" class="btn btn-secondary btn-small">Sair</button>
+                </div>
+            </div>
+            
+            <nav class="nav-tabs">
+                <ul>
+                    <li><a href="#" data-page="dashboard" class="active">Dashboard</a></li>
+                    <li><a href="#" data-page="schedules">Gerenciar Escalas</a></li>
+                    <li><a href="#" data-page="members">Membros</a></li>
+                    <li><a href="#" data-page="departments">Departamentos</a></li>
+                    <li><a href="#" data-page="services">Cultos</a></li>
+                    <li id="users-nav-item" style="display: none;"><a href="#" data-page="users">Usuários</a></li>
+                </ul>
+            </nav>
+        </header>
+        
+        <main class="main-content">
+            <!-- Conteúdo será carregado aqui dinamicamente -->
+        </main>
+    </div>
+
+    <!-- Modal genérico -->
+<div id="modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="modal-title">Adicionar Item</h2>
+            <span class="close">&times;</span>
+        </div>
+        <div id="modal-body"></div>
+        <div class="modal-actions">
+            <button id="modal-cancel" class="btn btn-secondary">Cancelar</button>
+            <button id="modal-save" class="btn btn-primary">Salvar</button>
+        </div>
+    </div>
+</div>
+
+    <!-- Scripts -->
+    <script src="scripts/supabase.js"></script>
+    <script src="scripts/dashboard.js"></script>
+    <script src="scripts/departments.js"></script>
+    <script src="scripts/members.js"></script>
+    <script src="scripts/services.js"></script>
+    <script src="scripts/users.js"></script>
+    <script src="scripts/schedules.js"></script>
+    <script src="scripts/modal.js"></script>
+</body>
+</html>
