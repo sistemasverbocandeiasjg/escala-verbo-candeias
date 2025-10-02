@@ -537,19 +537,19 @@
 
 /* Modal específico para escalas */
 .schedule-modal .modal-content {
-    max-width: 480px !important;
-    margin: 5% auto !important;
+    max-width: 380px !important;
+    margin: 9% auto !important;
 }
 
 /* Container do formulário dentro do modal de escalas */
 .modal-form-container {
     max-width: 400px;
     margin: 0 auto;
-    padding: 10px 20px;
+    padding: 0px 60px;
 }
 
 .modal-form-container .form-group {
-    margin-bottom: 18px;
+    margin-bottom: 10px;
     text-align: center;
 }
 

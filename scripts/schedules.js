@@ -391,21 +391,21 @@ async function showScheduleForm(user, id = null) {
                     ${departmentOptions}
                 </select>
                 ${user.level === 'Líder' && departments.length === 1 ?
-            '<div class="select-hint">Seu único departamento associado</div>' : ''}
+            '<div class="select-hint">Seu Departamento</div>' : ''}
             </div>
             <div class="form-group">
                 <label for="schedule-sector">Setor *</label>
                 <select id="schedule-sector" required>
                     <option value="">Selecione um departamento primeiro</option>
                 </select>
-                <div class="select-hint">Os setores serão carregados após selecionar um departamento</div>
+                <div class="select-hint">Setores do Departamento</div>
             </div>
             <div class="form-group">
                 <label for="schedule-member">Membro *</label>
                 <select id="schedule-member" required>
                     <option value="">Selecione um departamento primeiro</option>
                 </select>
-                <div class="select-hint">Os membros serão filtrados de acordo com o departamento selecionado</div>
+                <div class="select-hint">Membros do Departamento</div>
             </div>
             <div class="form-group">
                 <label for="schedule-service">Culto *</label>
