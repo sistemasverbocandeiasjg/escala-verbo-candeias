@@ -1,3 +1,19 @@
+// No início do schedules.js
+if (window.performance && window.performance.navigation.type === 1) {
+    // Página foi recarregada, limpar cache de funções
+    console.log('🔄 Página recarregada - verificando versões...');
+}
+
+// Função para forçar atualização
+window.forceUpdatePDF = function () {
+    console.log('🔄 Forçando atualização do módulo PDF...');
+    delete window.exportToPdf;
+    // Recarregar apenas o scripts/schedules.js
+    const script = document.createElement('script');
+    script.src = 'scripts/schedules.js?v=' + new Date().getTime();
+    document.head.appendChild(script);
+};
+
 // scripts/schedules.js - Versão ajustada para abas
 document.addEventListener('DOMContentLoaded', function () {
     // As funções serão chamadas pelo dashboard.js

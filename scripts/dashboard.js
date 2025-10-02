@@ -1,3 +1,43 @@
+console.log('=== SISTEMA DE ESCALAS - VERIFICAÇÃO DE VERSÃO ===');
+console.log('Versão do schedules.js: 1.3 - PDF Pagination Fix');
+console.log('Carregado em: ' + new Date().toLocaleString());
+console.log('================================================');
+
+// Função para verificar se a correção do PDF está carregada
+window.checkPDFFixLoaded = function () {
+    const pdfFunction = window.exportToPdf;
+    if (pdfFunction) {
+        console.log('✅ Função exportToPdf carregada corretamente');
+
+        // Verificar se é a versão corrigida pela assinatura da função
+        const functionString = pdfFunction.toString();
+        if (functionString.includes('spaceNeeded > spaceAvailable')) {
+            console.log('✅ Correção de paginação do PDF está ativa');
+            return true;
+        } else {
+            console.log('❌ Versão antiga do PDF detectada');
+            return false;
+        }
+    } else {
+        console.log('❌ Função exportToPdf não encontrada');
+        return false;
+    }
+};
+
+// Executar verificação quando a página carregar
+document.addEventListener('DOMContentLoaded', function () {
+    setTimeout(() => {
+        const isFixed = window.checkPDFFixLoaded();
+        if (!isFixed) {
+            console.warn('ATENÇÃO: A correção do PDF não foi carregada. Forçando recarregamento...');
+            // Forçar recarregamento se não estiver carregado
+            setTimeout(() => {
+                window.location.reload(true);
+            }, 2000);
+        }
+    }, 1000);
+});
+
 // scripts/dashboard.js - Versão completa corrigida para abas superiores
 document.addEventListener('DOMContentLoaded', function () {
     const navLinks = document.querySelectorAll('.nav-tabs a');
