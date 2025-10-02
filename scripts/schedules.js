@@ -861,13 +861,16 @@ function testDayOfWeek(dateString) {
 window.loadSchedules = loadSchedules;
 window.showScheduleForm = showScheduleForm;
 
-// Função para exportar escalas em PDF
+// Função para exportar escalas em PDF - CORRIGIDA para respeitar filtro
 async function exportToPdf() {
     try {
         console.log('Função exportToPdf chamada');
 
         const monthYearInput = document.getElementById('schedule-month-year');
+        const departmentFilter = document.getElementById('schedule-department-filter');
+
         console.log('monthYearInput:', monthYearInput);
+        console.log('departmentFilter:', departmentFilter);
 
         if (!monthYearInput) {
             console.error('Elemento schedule-month-year não encontrado');
@@ -876,7 +879,10 @@ async function exportToPdf() {
         }
 
         const selectedMonthYear = monthYearInput.value;
+        const selectedDepartment = departmentFilter ? departmentFilter.value : 'all';
+
         console.log('Mês/Ano selecionado:', selectedMonthYear);
+        console.log('Departamento selecionado:', selectedDepartment);
 
         const [year, month] = selectedMonthYear.split('-').map(Number);
         const monthName = getMonthName(month - 1);
@@ -892,34 +898,67 @@ async function exportToPdf() {
         exportPdfBtn.textContent = 'Gerando PDF...';
         exportPdfBtn.disabled = true;
 
-        console.log('Buscando dados do Supabase...');
+        console.log('Buscando dados do Supabase com filtros...');
 
-        // Buscar dados das escalas
+        // Buscar dados das escalas COM OS FILTROS APLICADOS
         const firstDay = new Date(year, month - 1, 1);
         const lastDay = new Date(year, month, 0);
 
-        const { data: schedules, error } = await supabase
+        let query = supabase
             .from('schedules')
             .select(`
-                    *,
-                    departments (name),
-                    members (name),
-                    services (name)
-                `)
+                *,
+                departments (name),
+                members (name),
+                services (name)
+            `)
             .gte('date', firstDay.toISOString().split('T')[0])
             .lte('date', lastDay.toISOString().split('T')[0])
             .order('date')
             .order('service_id');
+
+        // CORREÇÃO: Aplicar filtro de departamento
+        if (selectedDepartment !== 'all') {
+            query = query.eq('department_id', selectedDepartment);
+        }
+
+        // CORREÇÃO: Se for líder, aplicar filtro de departamentos do líder
+        const user = await getCurrentUser();
+        if (user && user.level === 'Líder') {
+            const { data: userDepartments, error: deptError } = await supabase
+                .from('user_departments')
+                .select('department_id')
+                .eq('user_id', user.id);
+
+            if (!deptError && userDepartments && userDepartments.length > 0) {
+                const deptIds = userDepartments.map(ud => ud.department_id);
+
+                // Se há um departamento específico selecionado, verificar se o líder tem acesso
+                if (selectedDepartment !== 'all' && !deptIds.includes(parseInt(selectedDepartment))) {
+                    alert('Acesso não permitido a este departamento');
+                    exportPdfBtn.textContent = originalText;
+                    exportPdfBtn.disabled = false;
+                    return;
+                }
+
+                // Aplicar filtro para mostrar apenas departamentos do líder
+                if (selectedDepartment === 'all') {
+                    query = query.in('department_id', deptIds);
+                }
+            }
+        }
+
+        const { data: schedules, error } = await query;
 
         if (error) {
             console.error('Erro ao buscar escalas:', error);
             throw error;
         }
 
-        console.log('Escalas encontradas:', schedules ? schedules.length : 0);
+        console.log('Escalas encontradas para PDF:', schedules ? schedules.length : 0);
 
         if (!schedules || schedules.length === 0) {
-            alert('Nenhuma escala encontrada para exportar no período selecionado.');
+            alert('Nenhuma escala encontrada para exportar com os filtros selecionados.');
             // Restaurar botão
             exportPdfBtn.textContent = originalText;
             exportPdfBtn.disabled = false;
@@ -927,7 +966,6 @@ async function exportToPdf() {
         }
 
         console.log('Verificando jsPDF...');
-        // Verificar se jsPDF está carregado
         if (typeof window.jspdf === 'undefined') {
             console.error('jsPDF não carregado');
             alert('Erro: Biblioteca jsPDF não carregada. Verifique a conexão com a internet.');
@@ -937,20 +975,7 @@ async function exportToPdf() {
             return;
         }
 
-        console.log('Agrupando escalas por data...');
-        // CORREÇÃO: Agrupar escalas por data (esta parte estava faltando)
-        const schedulesByDate = {};
-        schedules.forEach(schedule => {
-            const dateStr = schedule.date;
-            if (!schedulesByDate[dateStr]) {
-                schedulesByDate[dateStr] = [];
-            }
-            schedulesByDate[dateStr].push(schedule);
-        });
-
-        console.log('Datas agrupadas:', Object.keys(schedulesByDate).length);
-
-        console.log('Criando PDF...');
+        console.log('Criando PDF com filtros aplicados...');
 
         // Criar conteúdo do PDF
         const { jsPDF } = window.jspdf;
@@ -969,7 +994,17 @@ async function exportToPdf() {
         yPosition += 10;
         doc.setFontSize(14);
         doc.setTextColor(128, 128, 128);
-        doc.text(`Escalas de ${monthName}/${year}`, pageWidth / 2, yPosition, { align: 'center' });
+
+        // CORREÇÃO: Texto do cabeçalho refletindo os filtros
+        let headerText = `Escalas de ${monthName}/${year}`;
+        if (selectedDepartment !== 'all') {
+            const selectedDept = schedules.find(s => s.department_id == selectedDepartment)?.departments?.name;
+            headerText += ` - ${selectedDept || `Departamento ${selectedDepartment}`}`;
+        } else if (user && user.level === 'Líder') {
+            headerText += ' - Meus Departamentos';
+        }
+
+        doc.text(headerText, pageWidth / 2, yPosition, { align: 'center' });
 
         yPosition += 15;
 
@@ -977,9 +1012,18 @@ async function exportToPdf() {
         doc.setFontSize(10);
         doc.setTextColor(0, 0, 0);
 
-        // CORREÇÃO: Verificar se há escalas agrupadas
+        // Agrupar escalas por data (igual à função renderSchedulesList)
+        const schedulesByDate = {};
+        schedules.forEach(schedule => {
+            const dateStr = schedule.date;
+            if (!schedulesByDate[dateStr]) {
+                schedulesByDate[dateStr] = [];
+            }
+            schedulesByDate[dateStr].push(schedule);
+        });
+
         const dates = Object.keys(schedulesByDate).sort();
-        console.log('Datas para processar:', dates);
+        console.log('Datas para processar no PDF:', dates.length);
 
         if (dates.length === 0) {
             doc.setFontSize(12);
@@ -1073,13 +1117,28 @@ async function exportToPdf() {
             doc.setFontSize(8);
             doc.setTextColor(128, 128, 128);
             doc.text(`Página ${i} de ${totalPages}`, pageWidth - margin, doc.internal.pageSize.getHeight() - 10, { align: 'right' });
-            doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, margin, doc.internal.pageSize.getHeight() - 10);
+
+            // CORREÇÃO: Informações do filtro no rodapé
+            let filterInfo = `Filtro: ${selectedDepartment === 'all' ? 'Todos os departamentos' : 'Departamento específico'}`;
+            if (selectedDepartment !== 'all') {
+                const selectedDept = schedules.find(s => s.department_id == selectedDepartment)?.departments?.name;
+                filterInfo = `Departamento: ${selectedDept || selectedDepartment}`;
+            }
+            doc.text(filterInfo, margin, doc.internal.pageSize.getHeight() - 10);
+            doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, pageWidth / 2, doc.internal.pageSize.getHeight() - 10, { align: 'center' });
         }
 
         console.log('Salvando PDF...');
 
-        // Salvar PDF
-        const fileName = `escalas_${monthName}_${year}.pdf`;
+        // CORREÇÃO: Nome do arquivo refletindo os filtros
+        let fileName = `escalas_${monthName}_${year}`;
+        if (selectedDepartment !== 'all') {
+            const selectedDept = schedules.find(s => s.department_id == selectedDepartment)?.departments?.name;
+            const deptName = selectedDept ? selectedDept.replace(/\s+/g, '_') : `departamento_${selectedDepartment}`;
+            fileName += `_${deptName}`;
+        }
+        fileName += '.pdf';
+
         doc.save(fileName);
 
         // Restaurar botão
