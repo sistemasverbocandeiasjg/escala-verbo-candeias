@@ -3,6 +3,66 @@ document.addEventListener('DOMContentLoaded', function () {
     // As funções serão chamadas pelo dashboard.js
 });
 
+// CORREÇÃO DEFINITIVA: Função confiável para calcular dia da semana
+function calculateDayOfWeek(dateString) {
+    try {
+        const [year, month, day] = dateString.split('-').map(Number);
+
+        // Algoritmo de Tomohiko Sakamoto - mais confiável
+        // Retorna: 0 = Domingo, 1 = Segunda, 2 = Terça, 3 = Quarta, 4 = Quinta, 5 = Sexta, 6 = Sábado
+
+        const t = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+        const y = month < 3 ? year - 1 : year;
+        const result = (y + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) + t[month - 1] + day) % 7;
+
+        // O algoritmo retorna 0=Dom, 1=Seg, ..., 6=Sáb - que é exatamente o que precisamos
+        console.log(`Cálculo Sakamoto: ${dateString} -> ${result} (${getDayOfWeekName(result)})`);
+        return result;
+
+    } catch (error) {
+        console.error('Erro no cálculo Sakamoto:', error);
+
+        // Fallback: método Date com UTC para evitar timezone
+        try {
+            const [year, month, day] = dateString.split('-').map(Number);
+            const date = new Date(Date.UTC(year, month - 1, day));
+            const dayOfWeek = date.getUTCDay(); // 0=Domingo, 1=Segunda, etc.
+            console.log(`Fallback UTC: ${dateString} -> ${dayOfWeek} (${getDayOfWeekName(dayOfWeek)})`);
+            return dayOfWeek;
+        } catch (fallbackError) {
+            console.error('Erro no fallback:', fallbackError);
+            return 0; // Default para Domingo
+        }
+    }
+}
+
+// CORREÇÃO: Substituir a função testDayOfWeek pela nova função confiável
+function testDayOfWeek(dateString) {
+    return calculateDayOfWeek(dateString);
+}
+
+// FUNÇÃO DE VERIFICAÇÃO PARA DATAS CONHECIDAS
+function verifyKnownDates() {
+    console.log('=== VERIFICAÇÃO DE DATAS CONHECIDAS ===');
+
+    const testDates = [
+        { date: '2025-09-25', expected: 4, name: 'Quinta-feira' },
+        { date: '2025-09-28', expected: 0, name: 'Domingo' },
+        { date: '2025-10-02', expected: 4, name: 'Quinta-feira' },
+        { date: '2025-10-05', expected: 0, name: 'Domingo' },
+        { date: '2025-10-01', expected: 3, name: 'Quarta-feira' },
+        { date: '2025-10-06', expected: 1, name: 'Segunda-feira' }
+    ];
+
+    testDates.forEach(test => {
+        const calculated = calculateDayOfWeek(test.date);
+        const isCorrect = calculated === test.expected;
+        console.log(`${test.date}: ${getDayOfWeekName(calculated)} (calculado: ${calculated}, esperado: ${test.expected}) - ${isCorrect ? '✅' : '❌'}`);
+    });
+
+    console.log('=== FIM DA VERIFICAÇÃO ===');
+}
+
 // Função para carregar escalas
 async function loadSchedules(user) {
     try {
@@ -33,7 +93,9 @@ async function loadSchedules(user) {
             .gte('date', firstDay.toISOString().split('T')[0])
             .lte('date', lastDay.toISOString().split('T')[0])
             .order('date')
-            .order('service_id');
+            .order('service_id')
+            .order('department_id')
+            .order('sector');
 
         // Aplicar filtro de departamento
         if (selectedDepartment !== 'all') {
@@ -83,7 +145,6 @@ async function loadSchedules(user) {
     }
 }
 
-// CORREÇÃO: Na função renderSchedulesList - usar método confiável
 function renderSchedulesList(schedules, month, year, user, selectedDepartment = 'all') {
     const schedulesList = document.getElementById('schedules-list');
     if (!schedulesList) return;
@@ -94,6 +155,7 @@ function renderSchedulesList(schedules, month, year, user, selectedDepartment = 
     // Texto do filtro atual
     let filterText = 'Todos os departamentos';
     if (selectedDepartment !== 'all') {
+        // Encontrar o nome do departamento selecionado
         const selectedDept = schedules.find(s => s.department_id == selectedDepartment)?.departments?.name;
         filterText = selectedDept || `Departamento ${selectedDepartment}`;
     }
@@ -126,16 +188,16 @@ function renderSchedulesList(schedules, month, year, user, selectedDepartment = 
     let html = filterInfo;
 
     Object.keys(schedulesByDate).sort().forEach(dateStr => {
-        // CORREÇÃO DEFINITIVA: Usar método confiável para obter dia da semana
+        // CORREÇÃO DEFINITIVA: Usar a nova função confiável
         let dayOfWeekIndex = schedulesByDate[dateStr][0]?.day_of_week;
 
         // Se não tiver day_of_week salvo ou estiver incorreto, recalcular
         if (dayOfWeekIndex === undefined || dayOfWeekIndex === null) {
-            dayOfWeekIndex = testDayOfWeek(dateStr);
+            dayOfWeekIndex = calculateDayOfWeek(dateStr);
         }
 
         // VERIFICAÇÃO EXTRA: Se o dia calculado for diferente do salvo, usar o calculado
-        const calculatedDay = testDayOfWeek(dateStr);
+        const calculatedDay = calculateDayOfWeek(dateStr);
         if (dayOfWeekIndex !== calculatedDay) {
             console.warn(`Dia incorreto para ${dateStr}: salvo=${dayOfWeekIndex}, calculado=${calculatedDay}. Usando calculado.`);
             dayOfWeekIndex = calculatedDay;
@@ -158,26 +220,44 @@ function renderSchedulesList(schedules, month, year, user, selectedDepartment = 
                             <th style="padding: 12px; background: #f8f9fa; text-align: left;">Membro</th>
         `;
 
+        // Mostrar coluna de ações apenas para administradores e líderes
         if (user.level === 'Administrador' || user.level === 'Líder') {
             html += `<th style="padding: 12px; background: #f8f9fa; text-align: left;">Ações</th>`;
         }
 
         html += `</tr></thead><tbody>`;
 
-        schedulesByDate[dateStr].forEach(schedule => {
+        // ORDENAÇÃO: Ordenar escalas por culto, departamento e setor dentro de cada data
+        const sortedSchedules = schedulesByDate[dateStr].sort((a, b) => {
+            // Primeiro por culto (service_id)
+            if (a.service_id !== b.service_id) {
+                return a.service_id - b.service_id;
+            }
+
+            // Depois por departamento (department_id)
+            if (a.department_id !== b.department_id) {
+                return a.department_id - b.department_id;
+            }
+
+            // Finalmente por setor (ordem alfabética)
+            return a.sector.localeCompare(b.sector);
+        });
+
+        sortedSchedules.forEach(schedule => {
             html += `
                 <tr style="border-bottom: 1px solid #e2e8f0;">
-                    <td style="padding: 12px;">${schedule.services?.name || '-'}</td>
-                    <td style="padding: 12px;">${schedule.departments?.name || '-'}</td>
-                    <td style="padding: 12px;">${schedule.sector || '-'}</td>
-                    <td style="padding: 12px;">${schedule.members?.name || '-'}</td>
+                    <td style="padding: 12px;">${schedule.services.name}</td>
+                    <td style="padding: 12px;">${schedule.departments.name}</td>
+                    <td style="padding: 12px;">${schedule.sector}</td>
+                    <td style="padding: 12px;">${schedule.members.name}</td>
             `;
 
+            // Mostrar ações apenas para administradores e líderes
             if (user.level === 'Administrador' || user.level === 'Líder') {
                 html += `
                     <td style="padding: 12px;">
-                        <button class="action-btn edit-btn" data-id="${schedule.id}">Editar</button>
-                        <button class="action-btn delete-btn" data-id="${schedule.id}">Excluir</button>
+                        <button class="action-btn edit-btn" data-id="${schedule.id}" style="padding: 6px 12px; background: #4facfe; color: white; border: none; border-radius: 4px; margin-right: 5px; cursor: pointer;">Editar</button>
+                        <button class="action-btn delete-btn" data-id="${schedule.id}" style="padding: 6px 12px; background: #fa709a; color: white; border: none; border-radius: 4px; cursor: pointer;">Excluir</button>
                     </td>
                 `;
             }
@@ -190,6 +270,7 @@ function renderSchedulesList(schedules, month, year, user, selectedDepartment = 
 
     schedulesList.innerHTML = html;
 
+    // Adicionar event listeners para os botões (apenas para administradores e líderes)
     if (user.level === 'Administrador' || user.level === 'Líder') {
         document.querySelectorAll('.edit-btn').forEach(btn => {
             btn.addEventListener('click', function () {
@@ -207,91 +288,7 @@ function renderSchedulesList(schedules, month, year, user, selectedDepartment = 
     }
 }
 
-// FUNÇÃO DE CORREÇÃO DEFINITIVA
-async function fixAllDayOfWeeks() {
-    try {
-        console.log('Corrigindo TODOS os dias da semana...');
-
-        const { data: schedules, error } = await supabase
-            .from('schedules')
-            .select('id, date, day_of_week');
-
-        if (error) throw error;
-
-        let fixedCount = 0;
-        let correctCount = 0;
-
-        for (const schedule of schedules) {
-            const correctDayOfWeek = testDayOfWeek(schedule.date);
-            const currentDayOfWeek = schedule.day_of_week;
-
-            if (currentDayOfWeek !== correctDayOfWeek) {
-                const { error: updateError } = await supabase
-                    .from('schedules')
-                    .update({ day_of_week: correctDayOfWeek })
-                    .eq('id', schedule.id);
-
-                if (!updateError) {
-                    fixedCount++;
-                    console.log(`Corrigido: ${schedule.date} de ${currentDayOfWeek} para ${correctDayOfWeek}`);
-                }
-            } else {
-                correctCount++;
-            }
-        }
-
-        console.log(`Correção concluída: ${fixedCount} corrigidos, ${correctCount} já estavam corretos`);
-        alert(`Dias da semana corrigidos: ${fixedCount} escalas foram atualizadas!`);
-
-    } catch (error) {
-        console.error('Erro na correção:', error);
-        alert('Erro ao corrigir dias da semana: ' + error.message);
-    }
-}
-
-// Adicionar função global
-window.fixAllDays = fixAllDayOfWeeks;
-
-// FUNÇÃO DE DEBUG: Corrigir dias da semana existentes no banco
-async function fixExistingDayOfWeeks() {
-    try {
-        console.log('Corrigindo dias da semana existentes...');
-
-        // Buscar todas as escalas
-        const { data: schedules, error } = await supabase
-            .from('schedules')
-            .select('id, date');
-
-        if (error) throw error;
-
-        let fixedCount = 0;
-
-        // Para cada escala, calcular o dia correto e atualizar se necessário
-        for (const schedule of schedules) {
-            const correctDayOfWeek = getDayOfWeekFromDate(schedule.date);
-
-            // Atualizar no banco
-            const { error: updateError } = await supabase
-                .from('schedules')
-                .update({ day_of_week: correctDayOfWeek })
-                .eq('id', schedule.id);
-
-            if (!updateError) {
-                fixedCount++;
-            }
-        }
-
-        console.log(`Dias da semana corrigidos: ${fixedCount} escalas`);
-        alert(`Dias da semana corrigidos para ${fixedCount} escalas existentes!`);
-
-    } catch (error) {
-        console.error('Erro ao corrigir dias da semana:', error);
-    }
-}
-
-// Adicionar função global para correção manual
-window.fixDayOfWeeks = fixExistingDayOfWeeks;
-
+// As demais funções permanecem as mesmas (showScheduleForm, saveSchedule, deleteSchedule, etc.)
 async function showScheduleForm(user, id = null) {
     const modal = document.getElementById('modal');
     const modalTitle = document.getElementById('modal-title');
@@ -506,138 +503,7 @@ async function showScheduleForm(user, id = null) {
     showModal();
 }
 
-// NOVA FUNÇÃO: Carregar membros filtrados por departamento
-async function loadMembersForDepartment(departmentId, memberSelect, allMembers) {
-    if (!departmentId || !memberSelect) return;
-
-    try {
-        setSelectLoading(memberSelect, true);
-
-        // Limpar select de membros
-        memberSelect.innerHTML = '';
-
-        // Adicionar opção padrão
-        const defaultOption = document.createElement('option');
-        defaultOption.value = '';
-        defaultOption.textContent = 'Selecione um membro';
-        memberSelect.appendChild(defaultOption);
-
-        if (!allMembers || allMembers.length === 0) {
-            const option = document.createElement('option');
-            option.value = '';
-            option.textContent = 'Nenhum membro disponível';
-            option.disabled = true;
-            memberSelect.appendChild(option);
-            return;
-        }
-
-        // Filtrar membros que pertencem ao departamento selecionado
-        const filteredMembers = allMembers.filter(member => {
-            // Verificar se o membro tem o department_id na relação member_departments
-            return member.member_departments &&
-                member.member_departments.some(md => md.department_id == departmentId);
-        });
-
-        console.log('Membros filtrados para departamento', departmentId, ':', filteredMembers.length);
-
-        if (filteredMembers.length === 0) {
-            const option = document.createElement('option');
-            option.value = '';
-            option.textContent = 'Nenhum membro neste departamento';
-            option.disabled = true;
-            memberSelect.appendChild(option);
-        } else {
-            // Ordenar membros por nome
-            filteredMembers.sort((a, b) => a.name.localeCompare(b.name));
-
-            // Adicionar membros ao select
-            filteredMembers.forEach(member => {
-                const option = document.createElement('option');
-                option.value = member.id;
-                option.textContent = member.name;
-                memberSelect.appendChild(option);
-            });
-        }
-
-    } catch (error) {
-        console.error('Erro ao carregar membros:', error);
-        const option = document.createElement('option');
-        option.value = '';
-        option.textContent = 'Erro ao carregar membros';
-        option.disabled = true;
-        memberSelect.appendChild(option);
-    } finally {
-        setSelectLoading(memberSelect, false);
-    }
-}
-
-// Função auxiliar para mostrar estado de carregamento
-function setSelectLoading(selectElement, isLoading) {
-    if (isLoading) {
-        selectElement.classList.add('loading');
-        selectElement.disabled = true;
-    } else {
-        selectElement.classList.remove('loading');
-        selectElement.disabled = false;
-    }
-}
-
-// Função para carregar setores de um departamento (já existente - apenas melhorar)
-async function loadSectorsForDepartment(departmentId, sectorSelect) {
-    if (!departmentId || !sectorSelect) return;
-
-    try {
-        setSelectLoading(sectorSelect, true);
-
-        // Buscar informações do departamento
-        const { data: department, error } = await supabase
-            .from('departments')
-            .select('sectors, name')
-            .eq('id', departmentId)
-            .single();
-
-        if (error) {
-            console.error('Erro ao buscar departamento:', error);
-            throw error;
-        }
-
-        // Limpar select de setores
-        sectorSelect.innerHTML = '';
-
-        // Adicionar setores ao select
-        if (department && department.sectors && department.sectors.length > 0) {
-            const defaultOption = document.createElement('option');
-            defaultOption.value = '';
-            defaultOption.textContent = `Selecione um setor de ${department.name}`;
-            sectorSelect.appendChild(defaultOption);
-
-            // Ordenar setores alfabeticamente
-            department.sectors.sort().forEach(sector => {
-                const option = document.createElement('option');
-                option.value = sector;
-                option.textContent = sector;
-                sectorSelect.appendChild(option);
-            });
-        } else {
-            const option = document.createElement('option');
-            option.value = '';
-            option.textContent = `Nenhum setor cadastrado em ${department?.name || 'este departamento'}`;
-            option.disabled = true;
-            sectorSelect.appendChild(option);
-        }
-    } catch (error) {
-        console.error('Erro ao carregar setores:', error);
-        const option = document.createElement('option');
-        option.value = '';
-        option.textContent = 'Erro ao carregar setores';
-        option.disabled = true;
-        sectorSelect.appendChild(option);
-    } finally {
-        setSelectLoading(sectorSelect, false);
-    }
-}
-
-// CORREÇÃO: Na função saveSchedule - usar método confiável
+// CORREÇÃO DEFINITIVA: Na função saveSchedule - garantir que o dia da semana está correto
 async function saveSchedule(id, user) {
     const departmentSelect = document.getElementById('schedule-department');
     const sectorSelect = document.getElementById('schedule-sector');
@@ -668,13 +534,14 @@ async function saveSchedule(id, user) {
     }
 
     try {
-        // CORREÇÃO DEFINITIVA: Usar método confiável
-        const dayOfWeek = testDayOfWeek(date);
+        // CORREÇÃO: Usar a nova função confiável
+        const dayOfWeek = calculateDayOfWeek(date);
 
-        console.log('Salvando escala:');
-        console.log('- Data:', date);
-        console.log('- Dia da semana calculado:', dayOfWeek);
-        console.log('- Nome do dia:', getDayOfWeekName(dayOfWeek));
+        console.log('=== SALVANDO ESCALA ===');
+        console.log('Data selecionada:', date);
+        console.log('Dia da semana calculado:', dayOfWeek);
+        console.log('Nome do dia:', getDayOfWeekName(dayOfWeek));
+        console.log('======================');
 
         // Verificar se já existe escala para este membro no mesmo culto e data
         const { data: existing, error: checkError } = await supabase
@@ -767,101 +634,7 @@ async function deleteSchedule(id, user) {
     }
 }
 
-function getMonthName(month) {
-    const months = [
-        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-    ];
-    return months[month];
-}
-
-// CORREÇÃO DEFINITIVA: Função para obter nome do dia da semana
-function getDayOfWeekName(dayIndex) {
-    // Garantir que o índice está entre 0-6 (Domingo=0, Segunda=1, ..., Sábado=6)
-    const normalizedIndex = parseInt(dayIndex);
-
-    const days = [
-        'Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira',
-        'Quinta-feira', 'Sexta-feira', 'Sábado'
-    ];
-
-    if (normalizedIndex >= 0 && normalizedIndex < days.length) {
-        return days[normalizedIndex];
-    }
-
-    console.warn('Índice de dia inválido:', dayIndex);
-    return 'Dia inválido';
-}
-
-// CORREÇÃO DEFINITIVA: Função para calcular dia da semana SEM problemas de timezone
-function getDayOfWeekFromDate(dateString) {
-    try {
-        // Método confiável: usar algoritmo de Zeller ou cálculo direto
-        const [year, month, day] = dateString.split('-').map(Number);
-
-        // CORREÇÃO: Usar algoritmo que não depende de timezone
-        // Fórmula de Zeller ajustada para JavaScript (0=Sábado, 1=Domingo, ..., 6=Sexta)
-        // Vamos ajustar para o padrão JavaScript (0=Domingo, 1=Segunda, ..., 6=Sábado)
-
-        const a = Math.floor((14 - month) / 12);
-        const y = year - a;
-        const m = month + 12 * a - 2;
-
-        // Fórmula de Zeller: (dia + y + Math.floor(y/4) - Math.floor(y/100) + Math.floor(y/400) + Math.floor((31*m)/12)) % 7
-        let dayOfWeek = (day + y + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) + Math.floor((31 * m) / 12)) % 7;
-
-        // Ajustar para padrão JavaScript: Zeller retorna 0=Sábado, 1=Domingo -> converter para 0=Domingo, 1=Segunda
-        dayOfWeek = (dayOfWeek + 6) % 7;
-
-        console.log('Data:', dateString, 'Dia calculado (Zeller):', dayOfWeek, getDayOfWeekName(dayOfWeek));
-
-        return dayOfWeek;
-    } catch (error) {
-        console.error('Erro ao calcular dia da semana para:', dateString, error);
-
-        // Fallback: tentar com Date (menos confiável devido a timezone)
-        try {
-            const [year, month, day] = dateString.split('-').map(Number);
-            const date = new Date(Date.UTC(year, month - 1, day)); // Usar UTC
-            const dayOfWeek = date.getUTCDay(); // Usar UTC day
-            console.log('Fallback UTC para:', dateString, 'Dia:', dayOfWeek);
-            return dayOfWeek;
-        } catch (fallbackError) {
-            return 0; // Default para Domingo
-        }
-    }
-}
-
-// FUNÇÃO ALTERNATIVA: Método simples e confiável para verificação
-function testDayOfWeek(dateString) {
-    const [year, month, day] = dateString.split('-').map(Number);
-
-    // Tabela de verificação manual para datas conhecidas
-    const knownDates = {
-        '2025-09-25': 4, // Quinta-feira
-        '2025-09-28': 0, // Domingo
-        '2025-09-29': 1, // Segunda-feira
-        '2025-09-30': 2, // Terça-feira
-        '2025-10-01': 3, // Quarta-feira
-        '2025-10-02': 4, // Quinta-feira
-        '2025-10-03': 5, // Sexta-feira
-        '2025-10-04': 6  // Sábado
-    };
-
-    if (knownDates[dateString] !== undefined) {
-        console.log('Data conhecida:', dateString, 'Dia:', knownDates[dateString]);
-        return knownDates[dateString];
-    }
-
-    // Para datas não conhecidas, usar cálculo
-    return getDayOfWeekFromDate(dateString);
-}
-
-// Exportar funções para uso global
-window.loadSchedules = loadSchedules;
-window.showScheduleForm = showScheduleForm;
-
-// Função para exportar escalas em PDF - CORRIGIDA para respeitar filtro
+// Função para exportar escalas em PDF - COM ORDENAÇÃO POR CULTO, DEPARTAMENTO E SETOR
 async function exportToPdf() {
     try {
         console.log('Função exportToPdf chamada');
@@ -915,14 +688,16 @@ async function exportToPdf() {
             .gte('date', firstDay.toISOString().split('T')[0])
             .lte('date', lastDay.toISOString().split('T')[0])
             .order('date')
-            .order('service_id');
+            .order('service_id')
+            .order('department_id')
+            .order('sector');
 
-        // CORREÇÃO: Aplicar filtro de departamento
+        // Aplicar filtro de departamento
         if (selectedDepartment !== 'all') {
             query = query.eq('department_id', selectedDepartment);
         }
 
-        // CORREÇÃO: Se for líder, aplicar filtro de departamentos do líder
+        // Se for líder, aplicar filtro de departamentos do líder
         const user = await getCurrentUser();
         if (user && user.level === 'Líder') {
             const { data: userDepartments, error: deptError } = await supabase
@@ -975,7 +750,7 @@ async function exportToPdf() {
             return;
         }
 
-        console.log('Criando PDF com filtros aplicados...');
+        console.log('Criando PDF com ordenação por culto, departamento e setor...');
 
         // Criar conteúdo do PDF
         const { jsPDF } = window.jspdf;
@@ -995,7 +770,7 @@ async function exportToPdf() {
         doc.setFontSize(14);
         doc.setTextColor(128, 128, 128);
 
-        // CORREÇÃO: Texto do cabeçalho refletindo os filtros
+        // Texto do cabeçalho refletindo os filtros
         let headerText = `Escalas de ${monthName}/${year}`;
         if (selectedDepartment !== 'all') {
             const selectedDept = schedules.find(s => s.department_id == selectedDepartment)?.departments?.name;
@@ -1012,7 +787,7 @@ async function exportToPdf() {
         doc.setFontSize(10);
         doc.setTextColor(0, 0, 0);
 
-        // Agrupar escalas por data (igual à função renderSchedulesList)
+        // Agrupar escalas por data
         const schedulesByDate = {};
         schedules.forEach(schedule => {
             const dateStr = schedule.date;
@@ -1030,9 +805,26 @@ async function exportToPdf() {
             doc.text('Nenhuma escala encontrada para o período selecionado.', margin, yPosition);
         } else {
             dates.forEach(dateStr => {
-                const date = new Date(dateStr);
-                const dayOfWeek = getDayOfWeekName(date.getDay());
+                // CORREÇÃO DEFINITIVA: Usar a mesma função confiável do sistema
+                let dayOfWeekIndex = schedulesByDate[dateStr][0]?.day_of_week;
+
+                // Se não tiver day_of_week salvo ou estiver incorreto, recalcular
+                if (dayOfWeekIndex === undefined || dayOfWeekIndex === null) {
+                    dayOfWeekIndex = calculateDayOfWeek(dateStr);
+                }
+
+                // VERIFICAÇÃO EXTRA: Se o dia calculado for diferente do salvo, usar o calculado
+                const calculatedDay = calculateDayOfWeek(dateStr);
+                if (dayOfWeekIndex !== calculatedDay) {
+                    console.warn(`Dia incorreto no PDF para ${dateStr}: salvo=${dayOfWeekIndex}, calculado=${calculatedDay}. Usando calculado.`);
+                    dayOfWeekIndex = calculatedDay;
+                }
+
+                const dayOfWeek = getDayOfWeekName(dayOfWeekIndex);
                 const formattedDate = dateStr.split('-').reverse().join('/');
+
+                // DEBUG: Log para verificar as datas no PDF
+                console.log('PDF - Data:', dateStr, 'Dia calculado:', dayOfWeekIndex, 'Nome:', dayOfWeek);
 
                 // Verificar se precisa de nova página
                 if (yPosition > 250) {
@@ -1067,7 +859,23 @@ async function exportToPdf() {
                 doc.setFont('helvetica', 'normal');
                 doc.setTextColor(0, 0, 0);
 
-                schedulesByDate[dateStr].forEach((schedule, index) => {
+                // ORDENAÇÃO: Ordenar escalas por culto, departamento e setor dentro de cada data
+                const sortedSchedules = schedulesByDate[dateStr].sort((a, b) => {
+                    // Primeiro por culto (service_id)
+                    if (a.service_id !== b.service_id) {
+                        return a.service_id - b.service_id;
+                    }
+
+                    // Depois por departamento (department_id)
+                    if (a.department_id !== b.department_id) {
+                        return a.department_id - b.department_id;
+                    }
+
+                    // Finalmente por setor (ordem alfabética)
+                    return a.sector.localeCompare(b.sector);
+                });
+
+                sortedSchedules.forEach((schedule, index) => {
                     // Verificar se precisa de nova página
                     if (yPosition > 280) {
                         doc.addPage();
@@ -1118,7 +926,7 @@ async function exportToPdf() {
             doc.setTextColor(128, 128, 128);
             doc.text(`Página ${i} de ${totalPages}`, pageWidth - margin, doc.internal.pageSize.getHeight() - 10, { align: 'right' });
 
-            // CORREÇÃO: Informações do filtro no rodapé
+            // Informações do filtro no rodapé
             let filterInfo = `Filtro: ${selectedDepartment === 'all' ? 'Todos os departamentos' : 'Departamento específico'}`;
             if (selectedDepartment !== 'all') {
                 const selectedDept = schedules.find(s => s.department_id == selectedDepartment)?.departments?.name;
@@ -1130,14 +938,38 @@ async function exportToPdf() {
 
         console.log('Salvando PDF...');
 
-        // CORREÇÃO: Nome do arquivo refletindo os filtros
-        let fileName = `escalas_${monthName}_${year}`;
+        // CORREÇÃO: Nome do arquivo refletindo os filtros - COM NOME DO DEPARTAMENTO ESPECÍFICO PARA LÍDERES
+        let fileName = 'escalas';
+
+        // Buscar informações do departamento para líderes
+        let departmentName = '';
+
         if (selectedDepartment !== 'all') {
+            // Departamento específico selecionado
             const selectedDept = schedules.find(s => s.department_id == selectedDepartment)?.departments?.name;
-            const deptName = selectedDept ? selectedDept.replace(/\s+/g, '_') : `departamento_${selectedDepartment}`;
-            fileName += `_${deptName}`;
+            departmentName = selectedDept ? selectedDept.replace(/\s+/g, '_') : `departamento_${selectedDepartment}`;
+        } else if (user && user.level === 'Líder') {
+            // Líder com "Todos os departamentos" - verificar se tem apenas um departamento
+            const { data: userDepartments, error: deptError } = await supabase
+                .from('user_departments')
+                .select('department_id, departments(name)')
+                .eq('user_id', user.id);
+
+            if (!deptError && userDepartments && userDepartments.length === 1) {
+                // Líder tem apenas um departamento - usar o nome específico
+                departmentName = userDepartments[0].departments?.name?.replace(/\s+/g, '_') || `departamento_${userDepartments[0].department_id}`;
+            } else if (!deptError && userDepartments && userDepartments.length > 1) {
+                // Líder tem múltiplos departamentos
+                departmentName = 'Meus_Departamentos';
+            } else {
+                departmentName = 'Meus_Departamentos';
+            }
+        } else {
+            // Administrador com "Todos os departamentos"
+            departmentName = 'Todos_Departamentos';
         }
-        fileName += '.pdf';
+
+        fileName += `_${departmentName}_${monthName}_${year}.pdf`;
 
         doc.save(fileName);
 
@@ -1145,7 +977,7 @@ async function exportToPdf() {
         exportPdfBtn.textContent = originalText;
         exportPdfBtn.disabled = false;
 
-        console.log('PDF gerado com sucesso!');
+        console.log('PDF gerado com sucesso! Nome do arquivo:', fileName);
         showMessageGlobal('PDF gerado com sucesso!', 'success');
 
     } catch (error) {
@@ -1161,21 +993,214 @@ async function exportToPdf() {
     }
 }
 
-// Função de fallback para verificar se tudo está carregado
-function checkPdfDependencies() {
-    console.log('Verificando dependências do PDF...');
-    console.log('jspdf disponível:', typeof window.jspdf !== 'undefined');
-    console.log('Função exportToPdf disponível:', typeof exportToPdf === 'function');
-    console.log('Botão export-pdf:', document.getElementById('export-pdf'));
+// CORREÇÃO COMPLETA DE TODAS AS ESCALAS EXISTENTES
+async function completeFixAllSchedules() {
+    try {
+        console.log('=== CORREÇÃO COMPLETA DE TODAS AS ESCALAS ===');
+
+        const { data: schedules, error } = await supabase
+            .from('schedules')
+            .select('id, date, day_of_week');
+
+        if (error) throw error;
+
+        let fixed = 0;
+        let alreadyCorrect = 0;
+
+        for (const schedule of schedules) {
+            const correctDay = calculateDayOfWeek(schedule.date);
+
+            if (schedule.day_of_week !== correctDay) {
+                console.log(`🔧 Corrigindo ${schedule.date}: ${schedule.day_of_week} (${getDayOfWeekName(schedule.day_of_week)}) -> ${correctDay} (${getDayOfWeekName(correctDay)})`);
+
+                const { error: updateError } = await supabase
+                    .from('schedules')
+                    .update({ day_of_week: correctDay })
+                    .eq('id', schedule.id);
+
+                if (!updateError) {
+                    fixed++;
+                } else {
+                    console.error('Erro ao atualizar:', updateError);
+                }
+            } else {
+                alreadyCorrect++;
+            }
+        }
+
+        console.log(`✅ CORREÇÃO CONCLUÍDA:`);
+        console.log(`   ${fixed} escalas corrigidas`);
+        console.log(`   ${alreadyCorrect} escalas já estavam corretas`);
+        console.log(`   Total: ${fixed + alreadyCorrect} escalas verificadas`);
+
+        alert(`✅ Correção aplicada!\n${fixed} escalas corrigidas\n${alreadyCorrect} já estavam corretas`);
+
+    } catch (error) {
+        console.error('Erro na correção completa:', error);
+        alert('❌ Erro na correção: ' + error.message);
+    }
 }
 
-// Chamar esta função no console do navegador para debug
-window.checkPdfDependencies = checkPdfDependencies;
+// Adicionar funções globais para teste e correção
+window.verifyDates = verifyKnownDates;
+window.completeFix = completeFixAllSchedules;
+window.calculateDay = calculateDayOfWeek;
 
-// Também verificar quando a página carregar
-document.addEventListener('DOMContentLoaded', function () {
-    setTimeout(() => {
-        console.log('Verificação automática de dependências:');
-        checkPdfDependencies();
-    }, 1000);
-});
+window.loadSchedules = loadSchedules;
+window.showScheduleForm = showScheduleForm;
+
+// Funções auxiliares existentes (não modificadas)
+function getMonthName(month) {
+    const months = [
+        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return months[month];
+}
+
+function getDayOfWeekName(dayIndex) {
+    const normalizedIndex = parseInt(dayIndex);
+
+    const days = [
+        'Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira',
+        'Quinta-feira', 'Sexta-feira', 'Sábado'
+    ];
+
+    if (normalizedIndex >= 0 && normalizedIndex < days.length) {
+        return days[normalizedIndex];
+    }
+
+    console.warn('Índice de dia inválido:', dayIndex);
+    return 'Dia inválido';
+}
+
+// Função auxiliar para mostrar estado de carregamento
+function setSelectLoading(selectElement, isLoading) {
+    if (isLoading) {
+        selectElement.classList.add('loading');
+        selectElement.disabled = true;
+    } else {
+        selectElement.classList.remove('loading');
+        selectElement.disabled = false;
+    }
+}
+
+// Função para carregar setores de um departamento
+async function loadSectorsForDepartment(departmentId, sectorSelect) {
+    if (!departmentId || !sectorSelect) return;
+
+    try {
+        setSelectLoading(sectorSelect, true);
+
+        // Buscar informações do departamento
+        const { data: department, error } = await supabase
+            .from('departments')
+            .select('sectors, name')
+            .eq('id', departmentId)
+            .single();
+
+        if (error) {
+            console.error('Erro ao buscar departamento:', error);
+            throw error;
+        }
+
+        // Limpar select de setores
+        sectorSelect.innerHTML = '';
+
+        // Adicionar setores ao select
+        if (department && department.sectors && department.sectors.length > 0) {
+            const defaultOption = document.createElement('option');
+            defaultOption.value = '';
+            defaultOption.textContent = `Selecione um setor de ${department.name}`;
+            sectorSelect.appendChild(defaultOption);
+
+            // Ordenar setores alfabeticamente
+            department.sectors.sort().forEach(sector => {
+                const option = document.createElement('option');
+                option.value = sector;
+                option.textContent = sector;
+                sectorSelect.appendChild(option);
+            });
+        } else {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = `Nenhum setor cadastrado em ${department?.name || 'este departamento'}`;
+            option.disabled = true;
+            sectorSelect.appendChild(option);
+        }
+    } catch (error) {
+        console.error('Erro ao carregar setores:', error);
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'Erro ao carregar setores';
+        option.disabled = true;
+        sectorSelect.appendChild(option);
+    } finally {
+        setSelectLoading(sectorSelect, false);
+    }
+}
+
+// NOVA FUNÇÃO: Carregar membros filtrados por departamento
+async function loadMembersForDepartment(departmentId, memberSelect, allMembers) {
+    if (!departmentId || !memberSelect) return;
+
+    try {
+        setSelectLoading(memberSelect, true);
+
+        // Limpar select de membros
+        memberSelect.innerHTML = '';
+
+        // Adicionar opção padrão
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = 'Selecione um membro';
+        memberSelect.appendChild(defaultOption);
+
+        if (!allMembers || allMembers.length === 0) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'Nenhum membro disponível';
+            option.disabled = true;
+            memberSelect.appendChild(option);
+            return;
+        }
+
+        // Filtrar membros que pertencem ao departamento selecionado
+        const filteredMembers = allMembers.filter(member => {
+            // Verificar se o membro tem o department_id na relação member_departments
+            return member.member_departments &&
+                member.member_departments.some(md => md.department_id == departmentId);
+        });
+
+        console.log('Membros filtrados para departamento', departmentId, ':', filteredMembers.length);
+
+        if (filteredMembers.length === 0) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'Nenhum membro neste departamento';
+            option.disabled = true;
+            memberSelect.appendChild(option);
+        } else {
+            // Ordenar membros por nome
+            filteredMembers.sort((a, b) => a.name.localeCompare(b.name));
+
+            // Adicionar membros ao select
+            filteredMembers.forEach(member => {
+                const option = document.createElement('option');
+                option.value = member.id;
+                option.textContent = member.name;
+                memberSelect.appendChild(option);
+            });
+        }
+
+    } catch (error) {
+        console.error('Erro ao carregar membros:', error);
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'Erro ao carregar membros';
+        option.disabled = true;
+        memberSelect.appendChild(option);
+    } finally {
+        setSelectLoading(memberSelect, false);
+    }
+}
