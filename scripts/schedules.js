@@ -634,7 +634,7 @@ async function deleteSchedule(id, user) {
     }
 }
 
-// Função para exportar escalas em PDF - COM ORDENAÇÃO POR CULTO, DEPARTAMENTO E SETOR
+// Função para exportar escalas em PDF - COM PAGINAÇÃO INTELIGENTE
 async function exportToPdf() {
     try {
         console.log('Função exportToPdf chamada');
@@ -750,13 +750,14 @@ async function exportToPdf() {
             return;
         }
 
-        console.log('Criando PDF com ordenação por culto, departamento e setor...');
+        console.log('Criando PDF com paginação inteligente...');
 
         // Criar conteúdo do PDF
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
 
         const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
         const margin = 15;
         let yPosition = margin;
 
@@ -776,7 +777,18 @@ async function exportToPdf() {
             const selectedDept = schedules.find(s => s.department_id == selectedDepartment)?.departments?.name;
             headerText += ` - ${selectedDept || `Departamento ${selectedDepartment}`}`;
         } else if (user && user.level === 'Líder') {
-            headerText += ' - Meus Departamentos';
+            // Verificar se o líder tem apenas um departamento
+            const { data: userDepartments, error: deptError } = await supabase
+                .from('user_departments')
+                .select('department_id, departments(name)')
+                .eq('user_id', user.id);
+
+            if (!deptError && userDepartments && userDepartments.length === 1) {
+                const deptName = userDepartments[0].departments?.name || `Departamento ${userDepartments[0].department_id}`;
+                headerText += ` - ${deptName}`;
+            } else {
+                headerText += ' - Meus Departamentos';
+            }
         }
 
         doc.text(headerText, pageWidth / 2, yPosition, { align: 'center' });
@@ -804,9 +816,26 @@ async function exportToPdf() {
             doc.setFontSize(12);
             doc.text('Nenhuma escala encontrada para o período selecionado.', margin, yPosition);
         } else {
+            // NOVA LÓGICA: Calcular altura necessária para cada dia ANTES de desenhar
+            const dayHeights = {};
+
             dates.forEach(dateStr => {
+                const daySchedules = schedulesByDate[dateStr];
+                const headerHeight = 12; // Altura do cabeçalho da data
+                const tableHeaderHeight = 10; // Altura do cabeçalho da tabela
+                const rowHeight = 10; // Altura de cada linha
+                const spacing = 5; // Espaçamento entre dias
+
+                // Altura total necessária para este dia
+                dayHeights[dateStr] = headerHeight + tableHeaderHeight + (daySchedules.length * rowHeight) + spacing;
+            });
+
+            // Processar cada data com verificação de espaço
+            dates.forEach(dateStr => {
+                const daySchedules = schedulesByDate[dateStr];
+
                 // CORREÇÃO DEFINITIVA: Usar a mesma função confiável do sistema
-                let dayOfWeekIndex = schedulesByDate[dateStr][0]?.day_of_week;
+                let dayOfWeekIndex = daySchedules[0]?.day_of_week;
 
                 // Se não tiver day_of_week salvo ou estiver incorreto, recalcular
                 if (dayOfWeekIndex === undefined || dayOfWeekIndex === null) {
@@ -823,14 +852,36 @@ async function exportToPdf() {
                 const dayOfWeek = getDayOfWeekName(dayOfWeekIndex);
                 const formattedDate = dateStr.split('-').reverse().join('/');
 
-                // DEBUG: Log para verificar as datas no PDF
-                console.log('PDF - Data:', dateStr, 'Dia calculado:', dayOfWeekIndex, 'Nome:', dayOfWeek);
+                // VERIFICAÇÃO DE ESPAÇO NA PÁGINA - CORREÇÃO APLICADA
+                const spaceNeeded = dayHeights[dateStr];
+                const spaceAvailable = pageHeight - yPosition - 20; // 20px para rodapé
 
-                // Verificar se precisa de nova página
-                if (yPosition > 250) {
+                console.log(`Data: ${dateStr}, Espaço necessário: ${spaceNeeded}, Espaço disponível: ${spaceAvailable}, Posição Y: ${yPosition}`);
+
+                // Se não couber na página atual, criar nova página
+                if (spaceNeeded > spaceAvailable) {
+                    console.log(`Criando nova página para ${dateStr} - necessário: ${spaceNeeded}, disponível: ${spaceAvailable}`);
                     doc.addPage();
                     yPosition = margin;
+
+                    // Redesenhar cabeçalho da página na nova página
+                    doc.setFontSize(20);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(102, 126, 234);
+                    doc.text('Sistema de Escalas - Igreja', pageWidth / 2, yPosition, { align: 'center' });
+
+                    yPosition += 10;
+                    doc.setFontSize(14);
+                    doc.setTextColor(128, 128, 128);
+                    doc.text(headerText, pageWidth / 2, yPosition, { align: 'center' });
+
+                    yPosition += 15;
+                    doc.setFontSize(10);
+                    doc.setTextColor(0, 0, 0);
                 }
+
+                // DEBUG: Log para verificar as datas no PDF
+                console.log('PDF - Data:', dateStr, 'Dia calculado:', dayOfWeekIndex, 'Nome:', dayOfWeek);
 
                 // Data/dia da semana
                 doc.setFont('helvetica', 'bold');
@@ -860,7 +911,7 @@ async function exportToPdf() {
                 doc.setTextColor(0, 0, 0);
 
                 // ORDENAÇÃO: Ordenar escalas por culto, departamento e setor dentro de cada data
-                const sortedSchedules = schedulesByDate[dateStr].sort((a, b) => {
+                const sortedSchedules = daySchedules.sort((a, b) => {
                     // Primeiro por culto (service_id)
                     if (a.service_id !== b.service_id) {
                         return a.service_id - b.service_id;
@@ -876,11 +927,13 @@ async function exportToPdf() {
                 });
 
                 sortedSchedules.forEach((schedule, index) => {
-                    // Verificar se precisa de nova página
-                    if (yPosition > 280) {
+                    // VERIFICAÇÃO DE ESPAÇO PARA CADA LINHA - CORREÇÃO EXTRA
+                    if (yPosition > pageHeight - 20) {
+                        console.log('Criando nova página para linha individual');
                         doc.addPage();
                         yPosition = margin;
-                        // Redesenhar cabeçalho da tabela na nova página
+
+                        // Redesenhar cabeçalho da tabela na nova página para continuidade
                         doc.setFont('helvetica', 'bold');
                         doc.setTextColor(255, 255, 255);
                         doc.setFillColor(128, 128, 128);
@@ -924,7 +977,7 @@ async function exportToPdf() {
             doc.setPage(i);
             doc.setFontSize(8);
             doc.setTextColor(128, 128, 128);
-            doc.text(`Página ${i} de ${totalPages}`, pageWidth - margin, doc.internal.pageSize.getHeight() - 10, { align: 'right' });
+            doc.text(`Página ${i} de ${totalPages}`, pageWidth - margin, pageHeight - 10, { align: 'right' });
 
             // Informações do filtro no rodapé
             let filterInfo = `Filtro: ${selectedDepartment === 'all' ? 'Todos os departamentos' : 'Departamento específico'}`;
@@ -932,13 +985,13 @@ async function exportToPdf() {
                 const selectedDept = schedules.find(s => s.department_id == selectedDepartment)?.departments?.name;
                 filterInfo = `Departamento: ${selectedDept || selectedDepartment}`;
             }
-            doc.text(filterInfo, margin, doc.internal.pageSize.getHeight() - 10);
-            doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, pageWidth / 2, doc.internal.pageSize.getHeight() - 10, { align: 'center' });
+            doc.text(filterInfo, margin, pageHeight - 10);
+            doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
         }
 
         console.log('Salvando PDF...');
 
-        // CORREÇÃO: Nome do arquivo refletindo os filtros - COM NOME DO DEPARTAMENTO ESPECÍFICO PARA LÍDERES
+        // Nome do arquivo refletindo os filtros
         let fileName = 'escalas';
 
         // Buscar informações do departamento para líderes
@@ -956,10 +1009,8 @@ async function exportToPdf() {
                 .eq('user_id', user.id);
 
             if (!deptError && userDepartments && userDepartments.length === 1) {
-                // Líder tem apenas um departamento - usar o nome específico
                 departmentName = userDepartments[0].departments?.name?.replace(/\s+/g, '_') || `departamento_${userDepartments[0].department_id}`;
             } else if (!deptError && userDepartments && userDepartments.length > 1) {
-                // Líder tem múltiplos departamentos
                 departmentName = 'Meus_Departamentos';
             } else {
                 departmentName = 'Meus_Departamentos';
