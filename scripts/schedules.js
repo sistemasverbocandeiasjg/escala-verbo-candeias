@@ -312,6 +312,9 @@ async function showScheduleForm(user, id = null) {
 
     if (!modal || !modalTitle || !modalBody) return;
 
+    // ADICIONE ESTA LINHA: Adiciona classe específica para o modal de escalas
+    modal.classList.add('schedule-modal');
+
     modalTitle.textContent = id ? 'Editar Escala' : 'Nova Escala';
 
     // Carregar dados necessários
@@ -319,7 +322,6 @@ async function showScheduleForm(user, id = null) {
 
     // Se for líder, filtrar apenas seus departamentos
     if (user.level === 'Líder') {
-        // Buscar os departamentos do líder na tabela user_departments
         const { data: userDepartments, error: deptError } = await supabase
             .from('user_departments')
             .select('department_id')
@@ -329,7 +331,6 @@ async function showScheduleForm(user, id = null) {
             const deptIds = userDepartments.map(ud => ud.department_id);
             departmentsQuery = departmentsQuery.in('id', deptIds);
         } else {
-            // Se não encontrar departamentos, mostrar mensagem
             modalBody.innerHTML = `
                 <div class="message error">
                     <p>Você não está associado a nenhum departamento.</p>
@@ -380,39 +381,42 @@ async function showScheduleForm(user, id = null) {
     const autoSelectDepartment = user.level === 'Líder' && departments && departments.length === 1;
     const initialDepartmentValue = autoSelectDepartment ? departments[0].id : '';
 
+    // MODIFICAÇÃO AQUI: Adicione a classe modal-form-container
     modalBody.innerHTML = `
-        <div class="form-group">
-            <label for="schedule-department">Departamento *</label>
-            <select id="schedule-department" required 
-                ${user.level === 'Líder' ? (departments.length === 1 ? 'disabled' : '') : ''}>
-                ${departmentOptions}
-            </select>
-            ${user.level === 'Líder' && departments.length === 1 ?
+        <div class="modal-form-container">
+            <div class="form-group">
+                <label for="schedule-department">Departamento *</label>
+                <select id="schedule-department" required 
+                    ${user.level === 'Líder' ? (departments.length === 1 ? 'disabled' : '') : ''}>
+                    ${departmentOptions}
+                </select>
+                ${user.level === 'Líder' && departments.length === 1 ?
             '<div class="select-hint">Seu único departamento associado</div>' : ''}
-        </div>
-        <div class="form-group">
-            <label for="schedule-sector">Setor *</label>
-            <select id="schedule-sector" required>
-                <option value="">Selecione um departamento primeiro</option>
-            </select>
-            <div class="select-hint">Os setores serão carregados após selecionar um departamento</div>
-        </div>
-        <div class="form-group">
-            <label for="schedule-member">Membro *</label>
-            <select id="schedule-member" required>
-                <option value="">Selecione um departamento primeiro</option>
-            </select>
-            <div class="select-hint">Os membros serão filtrados de acordo com o departamento selecionado</div>
-        </div>
-        <div class="form-group">
-            <label for="schedule-service">Culto *</label>
-            <select id="schedule-service" required>
-                ${serviceOptions}
-            </select>
-        </div>
-        <div class="form-group">
-            <label for="schedule-date">Data *</label>
-            <input type="date" id="schedule-date" required>
+            </div>
+            <div class="form-group">
+                <label for="schedule-sector">Setor *</label>
+                <select id="schedule-sector" required>
+                    <option value="">Selecione um departamento primeiro</option>
+                </select>
+                <div class="select-hint">Os setores serão carregados após selecionar um departamento</div>
+            </div>
+            <div class="form-group">
+                <label for="schedule-member">Membro *</label>
+                <select id="schedule-member" required>
+                    <option value="">Selecione um departamento primeiro</option>
+                </select>
+                <div class="select-hint">Os membros serão filtrados de acordo com o departamento selecionado</div>
+            </div>
+            <div class="form-group">
+                <label for="schedule-service">Culto *</label>
+                <select id="schedule-service" required>
+                    ${serviceOptions}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="schedule-date">Data *</label>
+                <input type="date" id="schedule-date" required>
+            </div>
         </div>
     `;
 
@@ -504,6 +508,8 @@ async function showScheduleForm(user, id = null) {
     if (cancelBtn) {
         cancelBtn.onclick = function () {
             hideModal();
+            // ADICIONE ESTA LINHA: Remove a classe específica ao fechar o modal
+            modal.classList.remove('schedule-modal');
         };
     }
 
@@ -512,6 +518,8 @@ async function showScheduleForm(user, id = null) {
     if (closeBtn) {
         closeBtn.onclick = function () {
             hideModal();
+            // ADICIONE ESTA LINHA: Remove a classe específica ao fechar o modal
+            modal.classList.remove('schedule-modal');
         };
     }
 
