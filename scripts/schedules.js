@@ -391,14 +391,14 @@ async function showScheduleForm(user, id = null) {
                     ${departmentOptions}
                 </select>
                 ${user.level === 'Líder' && departments.length === 1 ?
-            '<div class="select-hint">Seu Departamento</div>' : ''}
+            '<div class="select-hint">Departamento Associado</div>' : ''}
             </div>
             <div class="form-group">
-                <label for="schedule-sector">Setor *</label>
-                <select id="schedule-sector" required>
+                <label for="schedule-sector">Setor <span id="sector-required" style="display: none; color: red;">*</span></label>
+                <select id="schedule-sector">
                     <option value="">Selecione um departamento primeiro</option>
                 </select>
-                <div class="select-hint">Setores do Departamento</div>
+                <div class="select-hint" id="sector-hint">Os setores serão carregados após selecionar um departamento</div>
             </div>
             <div class="form-group">
                 <label for="schedule-member">Membro *</label>
@@ -470,28 +470,20 @@ async function showScheduleForm(user, id = null) {
                 await loadSectorsForDepartment(schedule.department_id, sectorSelect);
                 await loadMembersForDepartment(schedule.department_id, memberSelect, membersData);
 
-                // Aguardar um pouco para garantir que os setores e membros foram carregados
+                // Aguardar para garantir carregamento
                 setTimeout(() => {
-                    sectorSelect.value = schedule.sector;
+                    // Preencher setor se existir
+                    if (schedule.sector && schedule.sector.trim() !== '') {
+                        sectorSelect.value = schedule.sector;
+                    } else {
+                        sectorSelect.value = '';
+                    }
+
                     memberSelect.value = schedule.member_id;
                     serviceSelect.value = schedule.service_id;
                     dateInput.value = schedule.date;
-                }, 200);
+                }, 300);
             }
-        }
-    } else {
-        // Definir data padrão como hoje
-        const dateInput = document.getElementById('schedule-date');
-        if (dateInput) {
-            dateInput.value = new Date().toISOString().split('T')[0];
-        }
-
-        // CORREÇÃO: Para líderes, carregar automaticamente setores e membros do departamento
-        if (user.level === 'Líder' && autoSelectDepartment) {
-            setTimeout(() => {
-                loadSectorsForDepartment(initialDepartmentValue, sectorSelect);
-                loadMembersForDepartment(initialDepartmentValue, memberSelect, membersData);
-            }, 100);
         }
     }
 
@@ -527,7 +519,7 @@ async function showScheduleForm(user, id = null) {
     showModal();
 }
 
-// CORREÇÃO DEFINITIVA: Na função saveSchedule - garantir que o dia da semana está correto
+// CORREÇÃO DEFINITIVA: Garantir que o dia da semana está correto
 async function saveSchedule(id, user) {
     const departmentSelect = document.getElementById('schedule-department');
     const sectorSelect = document.getElementById('schedule-sector');
@@ -546,14 +538,15 @@ async function saveSchedule(id, user) {
     const serviceId = serviceSelect.value;
     const date = dateInput.value;
 
-    // Validação dos campos
-    if (!departmentId || !sector || !memberId || !serviceId || !date) {
+    // Validação básica dos campos obrigatórios
+    if (!departmentId || !memberId || !serviceId || !date) {
         alert('Por favor, preencha todos os campos obrigatórios (*)');
         return;
     }
 
-    if (sector === '' || sector === 'Selecione um setor') {
-        alert('Por favor, selecione um setor válido');
+    // NOVA VALIDAÇÃO: Verificar se setor é obrigatório mas não foi preenchido
+    if (sectorSelect.required && !sector) {
+        alert('Por favor, selecione um setor. Este departamento requer setor.');
         return;
     }
 
@@ -565,6 +558,8 @@ async function saveSchedule(id, user) {
         console.log('Data selecionada:', date);
         console.log('Dia da semana calculado:', dayOfWeek);
         console.log('Nome do dia:', getDayOfWeekName(dayOfWeek));
+        console.log('Setor selecionado:', sector || 'Nenhum setor');
+        console.log('Setor obrigatório?:', sectorSelect.required);
         console.log('======================');
 
         // Verificar se já existe escala para este membro no mesmo culto e data
@@ -1160,7 +1155,7 @@ function setSelectLoading(selectElement, isLoading) {
     }
 }
 
-// Função para carregar setores de um departamento
+// Função para carregar setores de um departamento e controlar obrigatoriedade
 async function loadSectorsForDepartment(departmentId, sectorSelect) {
     if (!departmentId || !sectorSelect) return;
 
@@ -1182,26 +1177,49 @@ async function loadSectorsForDepartment(departmentId, sectorSelect) {
         // Limpar select de setores
         sectorSelect.innerHTML = '';
 
-        // Adicionar setores ao select
-        if (department && department.sectors && department.sectors.length > 0) {
+        // Elementos de controle de obrigatoriedade
+        const sectorRequired = document.getElementById('sector-required');
+        const sectorHint = document.getElementById('sector-hint');
+
+        // Verificar se o departamento tem setores
+        const hasSectors = department && department.sectors && department.sectors.length > 0;
+
+        if (hasSectors) {
+            // Departamento TEM setores - setor é obrigatório
+            sectorSelect.required = true;
+            if (sectorRequired) sectorRequired.style.display = 'inline';
+            if (sectorHint) sectorHint.textContent = 'Selecione um setor *';
+
+            // Adicionar opção padrão obrigatória
             const defaultOption = document.createElement('option');
             defaultOption.value = '';
-            defaultOption.textContent = `Selecione um setor de ${department.name}`;
+            defaultOption.textContent = 'Selecione um setor';
+            defaultOption.disabled = true;
+            defaultOption.selected = true;
             sectorSelect.appendChild(defaultOption);
 
-            // Ordenar setores alfabeticamente
+            // Adicionar setores ao select
             department.sectors.sort().forEach(sector => {
                 const option = document.createElement('option');
                 option.value = sector;
                 option.textContent = sector;
                 sectorSelect.appendChild(option);
             });
+
+            console.log(`Setores carregados para departamento ${department.name}:`, department.sectors.length);
         } else {
-            const option = document.createElement('option');
-            option.value = '';
-            option.textContent = `Nenhum setor cadastrado em ${department?.name || 'este departamento'}`;
-            option.disabled = true;
-            sectorSelect.appendChild(option);
+            // Departamento NÃO TEM setores - setor NÃO é obrigatório
+            sectorSelect.required = false;
+            if (sectorRequired) sectorRequired.style.display = 'none';
+            if (sectorHint) sectorHint.textContent = 'Este departamento não tem setores cadastrados';
+
+            // Adicionar opção padrão
+            const defaultOption = document.createElement('option');
+            defaultOption.value = '';
+            defaultOption.textContent = 'Nenhum setor específico';
+            sectorSelect.appendChild(defaultOption);
+
+            console.log(`Departamento ${department?.name} não tem setores cadastrados`);
         }
     } catch (error) {
         console.error('Erro ao carregar setores:', error);
