@@ -82,30 +82,52 @@ document.addEventListener('DOMContentLoaded', function () {
     function setupNavigationBasedOnUserLevel(user) {
         const navTabs = document.querySelector('.nav-tabs ul');
         const usersNavItem = document.getElementById('users-nav-item');
+        const reportsNavItem = document.getElementById('reports-nav-item'); // AGORA COM ID
 
         if (!navTabs) return;
 
-        // Esconder aba de usuários se não for administrador
+        console.log('Configurando navegação para:', user.level);
+
+        // Esconder/mostrar aba de usuários
         if (usersNavItem) {
             if (user.level === 'Administrador') {
                 usersNavItem.style.display = 'block';
+                console.log('✅ Aba de Usuários mostrada para Administrador');
             } else {
                 usersNavItem.style.display = 'none';
+                console.log('❌ Aba de Usuários escondida');
             }
         }
 
-        // CORREÇÃO: Resetar todas as abas primeiro (importante!)
+        // MOSTRAR ABA DE RELATÓRIOS PARA ADMINISTRADOR E LÍDER
+        if (reportsNavItem) {
+            if (user.level === 'Administrador' || user.level === 'Líder') {
+                reportsNavItem.style.display = 'block';
+                console.log('✅ Aba de Relatórios mostrada para', user.level);
+            } else {
+                reportsNavItem.style.display = 'none';
+                console.log('❌ Aba de Relatórios escondida');
+            }
+        }
+
+        // CORREÇÃO: Resetar todas as abas primeiro
         const allTabs = navTabs.querySelectorAll('li');
         allTabs.forEach(tab => {
-            tab.style.display = 'block'; // Mostrar todas as abas inicialmente
+            // Não resetar as abas que já foram configuradas acima
+            if (tab.id !== 'users-nav-item' && tab.id !== 'reports-nav-item') {
+                tab.style.display = 'block';
+            }
         });
 
-        // Se for líder, mostrar apenas a aba de Escalas
+        // Se for líder, mostrar apenas a aba de Escalas e Relatórios
         if (user.level === 'Líder') {
             allTabs.forEach(tab => {
                 const link = tab.querySelector('a');
-                if (link && link.getAttribute('data-page') !== 'schedules') {
+                if (link && link.getAttribute('data-page') !== 'schedules' &&
+                    link.getAttribute('data-page') !== 'schedule-reports' &&
+                    tab.id !== 'reports-nav-item') { // Mantém a aba de relatórios
                     tab.style.display = 'none';
+                    console.log('🔒 Escondendo aba:', link.getAttribute('data-page'));
                 }
             });
 
@@ -115,9 +137,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 schedulesTab.textContent = 'Gerenciar Escalas';
             }
         } else {
-            // CORREÇÃO: Para administradores, garantir que todas as abas estão visíveis
+            // Para administradores, garantir que todas as abas estão visíveis
             allTabs.forEach(tab => {
-                tab.style.display = 'block';
+                if (tab.id !== 'users-nav-item' && tab.id !== 'reports-nav-item') {
+                    tab.style.display = 'block';
+                }
             });
 
             // Restaurar o texto original da aba de escalas
@@ -126,6 +150,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 schedulesTab.textContent = 'Gerenciar Escalas';
             }
         }
+
+        console.log('Navegação configurada com sucesso');
     }
 
     function loadInitialContent(user) {
@@ -189,6 +215,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 case 'schedules':
                     content = await loadSchedulesContent(user);
                     break;
+                case 'schedule-reports': // NOVA SEÇÃO
+                    content = await loadScheduleReportsContent(user);
+                    break;
                 case 'members':
                     content = await loadMembersContent(user);
                     break;
@@ -223,6 +252,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 break;
             case 'schedules':
                 initializeSchedulesEvents(user);
+                break;
+            case 'schedule-reports': // NOVA SEÇÃO
+                initializeScheduleReportsEvents(user);
                 break;
             case 'members':
                 initializeMembersEvents(user);
@@ -434,6 +466,71 @@ document.addEventListener('DOMContentLoaded', function () {
             const schedulesList = document.getElementById('schedules-list');
             if (schedulesList) {
                 schedulesList.innerHTML = '<div class="message error">Função de carregamento não disponível</div>';
+            }
+        }
+    }
+
+    // ========== RELATÓRIOS DE ESCALAS ==========
+    async function loadScheduleReportsContent(user) {
+        const title = user.level === 'Líder' ? 'Meu Relatório de Escalas' : 'Relatório de Escalas';
+        const description = user.level === 'Líder'
+            ? 'Quantidade de escalas dos membros do seu departamento'
+            : 'Quantidade de escalas de todos os membros por departamento';
+
+        return `
+            <div id="schedule-reports" class="content-section active">
+                <div class="form-container">
+                    <div class="form-header">
+                        <h2>${title}</h2>
+                        <p>${description}</p>
+                    </div>
+                    <div class="form-body">
+                        <div class="filters">
+                            <div class="filter-group">
+                                <label for="report-month-year">Mês/Ano</label>
+                                <input type="month" id="report-month-year" class="month-picker" value="${new Date().toISOString().slice(0, 7)}">
+                            </div>
+                            <button id="refresh-report" class="btn btn-primary btn-icon" title="Atualizar relatório">⟳</button>
+                        </div>
+                        
+                        <div id="schedule-reports-list" class="data-content"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function initializeScheduleReportsEvents(user) {
+        console.log('Inicializando eventos de relatórios...');
+
+        const refreshReportBtn = document.getElementById('refresh-report');
+        const monthYearInput = document.getElementById('report-month-year');
+
+        if (refreshReportBtn) {
+            refreshReportBtn.addEventListener('click', () => {
+                console.log('Atualizando relatório...');
+                loadScheduleReportsData(user);
+            });
+        }
+
+        if (monthYearInput) {
+            monthYearInput.addEventListener('change', () => {
+                console.log('Filtro mês/ano alterado:', monthYearInput.value);
+                loadScheduleReportsData(user);
+            });
+        }
+
+        loadScheduleReportsData(user);
+    }
+
+    async function loadScheduleReportsData(user) {
+        if (typeof loadScheduleReports === 'function') {
+            await loadScheduleReports(user);
+        } else {
+            console.error('Função loadScheduleReports não encontrada');
+            const reportsList = document.getElementById('schedule-reports-list');
+            if (reportsList) {
+                reportsList.innerHTML = '<div class="message error">Função de relatório não disponível</div>';
             }
         }
     }
@@ -748,5 +845,5 @@ document.addEventListener('DOMContentLoaded', function () {
         return await checkAuth();
     };
 
-    console.log('Dashboard.js carregado com sucesso');
+    console.log('Dashboard.js carregado com sucesso - Versão 1.5 com Relatórios');
 });
