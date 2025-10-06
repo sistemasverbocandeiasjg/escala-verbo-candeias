@@ -1,3 +1,9 @@
+// NO INÍCIO DO ARQUIVO - Adicionar após as declarações iniciais
+console.log('=== SISTEMA DE ESCALAS - PDF COM LAYOUT AGRUPADO ===');
+console.log('Versão: 2.3 - Export PDF com células mescladas');
+console.log('Carregado em: ' + new Date().toLocaleString());
+console.log('====================================================');
+
 // No início do schedules.js
 if (window.performance && window.performance.navigation.type === 1) {
     // Página foi recarregada, limpar cache de funções
@@ -171,7 +177,6 @@ function renderSchedulesList(schedules, month, year, user, selectedDepartment = 
     // Texto do filtro atual
     let filterText = 'Todos os departamentos';
     if (selectedDepartment !== 'all') {
-        // Encontrar o nome do departamento selecionado
         const selectedDept = schedules.find(s => s.department_id == selectedDepartment)?.departments?.name;
         filterText = selectedDept || `Departamento ${selectedDepartment}`;
     }
@@ -243,42 +248,129 @@ function renderSchedulesList(schedules, month, year, user, selectedDepartment = 
 
         html += `</tr></thead><tbody>`;
 
-        // ORDENAÇÃO: Ordenar escalas por culto, departamento e setor dentro de cada data
-        const sortedSchedules = schedulesByDate[dateStr].sort((a, b) => {
-            // Primeiro por culto (service_id)
-            if (a.service_id !== b.service_id) {
-                return a.service_id - b.service_id;
+        // NOVO AGRUPAMENTO: Agrupar por culto e departamento para criar grupos visuais
+        const schedulesForDate = schedulesByDate[dateStr];
+
+        // Criar estrutura de agrupamento
+        const groupedSchedules = {};
+
+        schedulesForDate.forEach(schedule => {
+            const key = `${schedule.service_id}-${schedule.department_id}`;
+
+            if (!groupedSchedules[key]) {
+                groupedSchedules[key] = {
+                    service: schedule.services,
+                    department: schedule.departments,
+                    schedules: []
+                };
             }
 
-            // Depois por departamento (department_id)
-            if (a.department_id !== b.department_id) {
-                return a.department_id - b.department_id;
-            }
-
-            // Finalmente por setor (ordem alfabética)
-            return a.sector.localeCompare(b.sector);
+            groupedSchedules[key].schedules.push(schedule);
         });
 
-        sortedSchedules.forEach(schedule => {
-            html += `
-                <tr style="border-bottom: 1px solid #e2e8f0;">
-                    <td style="padding: 12px;">${schedule.services.name}</td>
-                    <td style="padding: 12px;">${schedule.departments.name}</td>
-                    <td style="padding: 12px;">${schedule.sector}</td>
-                    <td style="padding: 12px;">${schedule.members.name}</td>
-            `;
+        // Ordenar grupos por nome do culto e departamento
+        const sortedGroups = Object.values(groupedSchedules).sort((a, b) => {
+            // Primeiro por nome do culto
+            const serviceCompare = a.service.name.localeCompare(b.service.name);
+            if (serviceCompare !== 0) return serviceCompare;
 
-            // Mostrar ações apenas para administradores e líderes
-            if (user.level === 'Administrador' || user.level === 'Líder') {
-                html += `
-                    <td style="padding: 12px;">
-                        <button class="action-btn edit-btn" data-id="${schedule.id}" style="padding: 6px 12px; background: #4facfe; color: white; border: none; border-radius: 4px; margin-right: 5px; cursor: pointer;">Editar</button>
-                        <button class="action-btn delete-btn" data-id="${schedule.id}" style="padding: 6px 12px; background: #fa709a; color: white; border: none; border-radius: 4px; cursor: pointer;">Excluir</button>
-                    </td>
-                `;
-            }
+            // Depois por nome do departamento
+            return a.department.name.localeCompare(b.department.name);
+        });
 
-            html += `</tr>`;
+        // Renderizar cada grupo como linhas agrupadas na tabela
+        sortedGroups.forEach((group, groupIndex) => {
+            const { service, department, schedules } = group;
+
+            // Ordenar escalas por setor e membro
+            const sortedSchedules = schedules.sort((a, b) => {
+                // Primeiro por setor
+                const sectorCompare = (a.sector || '').localeCompare(b.sector || '');
+                if (sectorCompare !== 0) return sectorCompare;
+
+                // Depois por nome do membro
+                return a.members.name.localeCompare(b.members.name);
+            });
+
+            // Calcular quantas linhas terá este grupo
+            const groupRowspan = sortedSchedules.length;
+
+            // Agrupar por setor dentro do grupo
+            const schedulesBySector = {};
+            sortedSchedules.forEach(schedule => {
+                const sector = schedule.sector || 'Sem setor específico';
+                if (!schedulesBySector[sector]) {
+                    schedulesBySector[sector] = [];
+                }
+                schedulesBySector[sector].push(schedule);
+            });
+
+            // Ordenar setores alfabeticamente
+            const sortedSectors = Object.keys(schedulesBySector).sort((a, b) => a.localeCompare(b));
+
+            // Contador para controlar a posição atual no grupo
+            let currentPosition = 0;
+
+            // Renderizar cada setor dentro do grupo
+            sortedSectors.forEach((sector, sectorIndex) => {
+                const sectorSchedules = schedulesBySector[sector];
+                const sectorRowspan = sectorSchedules.length;
+
+                // Renderizar cada escala do setor
+                sectorSchedules.forEach((schedule, scheduleIndex) => {
+                    const isFirstInGroup = currentPosition === 0;
+                    const isFirstInSector = scheduleIndex === 0;
+
+                    html += `
+                        <tr style="border-bottom: 1px solid #e2e8f0; ${isFirstInGroup ? 'border-top: 2px solid #e2e8f0;' : ''}">
+                    `;
+
+                    // Primeira linha do grupo - células mescladas para culto e departamento
+                    if (isFirstInGroup && isFirstInSector) {
+                        html += `
+                            <td style="padding: 12px; font-weight: 600; color: #2d3748; text-align: center; vertical-align: middle;" rowspan="${groupRowspan}">
+                                ${service.name}
+                            </td>
+                            <td style="padding: 12px; font-weight: 600; color: #2d3748; text-align: center; vertical-align: middle;" rowspan="${groupRowspan}">
+                                ${department.name}
+                            </td>
+                        `;
+                    }
+
+                    // Primeira linha do setor - célula mesclada para o setor
+                    if (isFirstInSector) {
+                        html += `
+                            <td style="padding: 12px; font-weight: 500; color: #4a5568; text-align: center; vertical-align: middle;" rowspan="${sectorRowspan}">
+                                ${sector !== 'Sem setor específico' ? sector : '-'}
+                            </td>
+                        `;
+                    }
+
+                    // Células do membro (sempre preenchidas)
+                    html += `
+                            <td style="padding: 12px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="color: #2d3748;">${schedule.members.name}</span>
+                                    ${schedule.members.type ? `<span style="color: #718096; font-size: 0.8rem; background: #edf2f7; padding: 2px 6px; border-radius: 4px;">${schedule.members.type}</span>` : ''}
+                                </div>
+                            </td>
+                    `;
+
+                    // Mostrar ações apenas para administradores e líderes
+                    if (user.level === 'Administrador' || user.level === 'Líder') {
+                        html += `
+                            <td style="padding: 12px;">
+                                <button class="action-btn edit-btn" data-id="${schedule.id}" style="padding: 6px 12px; background: #4facfe; color: white; border: none; border-radius: 4px; margin-right: 5px; cursor: pointer;">Editar</button>
+                                <button class="action-btn delete-btn" data-id="${schedule.id}" style="padding: 6px 12px; background: #fa709a; color: white; border: none; border-radius: 4px; cursor: pointer;">Excluir</button>
+                            </td>
+                        `;
+                    }
+
+                    html += `</tr>`;
+
+                    currentPosition++;
+                });
+            });
         });
 
         html += `</tbody></table></div>`;
@@ -519,7 +611,7 @@ async function showScheduleForm(user, id = null) {
     showModal();
 }
 
-// CORREÇÃO DEFINITIVA: Garantir que o dia da semana está correto
+// CORREÇÃO DEFINITIVA: Garantir que o dia da semana está correto - MODIFICADA COM SWEETALERT2
 async function saveSchedule(id, user) {
     const departmentSelect = document.getElementById('schedule-department');
     const sectorSelect = document.getElementById('schedule-sector');
@@ -528,7 +620,7 @@ async function saveSchedule(id, user) {
     const dateInput = document.getElementById('schedule-date');
 
     if (!departmentSelect || !sectorSelect || !memberSelect || !serviceSelect || !dateInput) {
-        alert('Erro: Elementos do formulário não encontrados');
+        await SweetAlert.error('Erro', 'Elementos do formulário não encontrados');
         return;
     }
 
@@ -540,27 +632,18 @@ async function saveSchedule(id, user) {
 
     // Validação básica dos campos obrigatórios
     if (!departmentId || !memberId || !serviceId || !date) {
-        alert('Por favor, preencha todos os campos obrigatórios (*)');
+        await SweetAlert.error('Atenção', 'Por favor, preencha todos os campos obrigatórios (*)');
         return;
     }
 
-    // NOVA VALIDAÇÃO: Verificar se setor é obrigatório mas não foi preenchido
+    // Validação: Verificar se setor é obrigatório mas não foi preenchido
     if (sectorSelect.required && !sector) {
-        alert('Por favor, selecione um setor. Este departamento requer setor.');
+        await SweetAlert.error('Atenção', 'Por favor, selecione um setor. Este departamento requer setor.');
         return;
     }
 
     try {
-        // CORREÇÃO: Usar a nova função confiável
         const dayOfWeek = calculateDayOfWeek(date);
-
-        console.log('=== SALVANDO ESCALA ===');
-        console.log('Data selecionada:', date);
-        console.log('Dia da semana calculado:', dayOfWeek);
-        console.log('Nome do dia:', getDayOfWeekName(dayOfWeek));
-        console.log('Setor selecionado:', sector || 'Nenhum setor');
-        console.log('Setor obrigatório?:', sectorSelect.required);
-        console.log('======================');
 
         // Verificar se já existe escala para este membro no mesmo culto e data
         const { data: existing, error: checkError } = await supabase
@@ -572,14 +655,42 @@ async function saveSchedule(id, user) {
 
         if (checkError) {
             console.error('Erro ao verificar escala:', checkError);
-            alert('Erro ao verificar escala existente');
+            await SweetAlert.error('Erro', 'Erro ao verificar escala existente');
             return;
         }
 
         if (existing && existing.length > 0 && (!id || existing[0].id !== parseInt(id))) {
-            alert('Este membro já está escalado para este culto na data selecionada');
+            await SweetAlert.error('Atenção', 'Este membro já está escalado para este culto na data selecionada');
             return;
         }
+
+        // CONFIRMAÇÃO COM SWEETALERT2
+        const action = id ? 'editar' : 'cadastrar';
+        const memberName = memberSelect.options[memberSelect.selectedIndex].text;
+        const serviceName = serviceSelect.options[serviceSelect.selectedIndex].text;
+        const departmentName = departmentSelect.options[departmentSelect.selectedIndex].text;
+        const formattedDate = new Date(date).toLocaleDateString('pt-BR');
+
+        const confirmMessage = id
+            ? 'Confirmar Edição de Escala'
+            : 'Confirmar Nova Escala';
+
+        const confirmText = `• Membro: ${memberName}\n• Culto: ${serviceName}\n• Data: ${formattedDate}\n• Departamento: ${departmentName}${sector ? `\n• Setor: ${sector}` : ''}`;
+
+        const confirmed = await SweetAlert.confirm(
+            confirmMessage,
+            confirmText,
+            id ? 'Sim, Editar' : 'Sim, Cadastrar',
+            'Cancelar'
+        );
+
+        if (!confirmed) {
+            console.log('Usuário cancelou a operação');
+            return;
+        }
+
+        // Mostrar loading
+        SweetAlert.showLoading(id ? 'Atualizando escala...' : 'Cadastrando escala...');
 
         if (id) {
             // Editar escala existente
@@ -595,12 +706,10 @@ async function saveSchedule(id, user) {
                 })
                 .eq('id', id);
 
-            if (error) {
-                console.error('Erro ao atualizar escala:', error);
-                throw error;
-            }
+            if (error) throw error;
 
-            alert('Escala atualizada com sucesso!');
+            SweetAlert.close();
+            await SweetAlert.success('Sucesso!', 'Escala atualizada com sucesso!');
         } else {
             // Criar nova escala
             const { error } = await supabase
@@ -614,30 +723,70 @@ async function saveSchedule(id, user) {
                     day_of_week: dayOfWeek
                 }]);
 
-            if (error) {
-                console.error('Erro ao criar escala:', error);
-                throw error;
-            }
+            if (error) throw error;
 
-            alert('Escala criada com sucesso!');
+            SweetAlert.close();
+            await SweetAlert.success('Sucesso!', 'Escala criada com sucesso!');
         }
 
         // Fechar modal e recarregar lista
         hideModal();
-
-        // Recarregar escalas
         loadSchedules(user);
 
     } catch (error) {
+        SweetAlert.close();
         console.error('Erro ao salvar escala:', error);
-        alert('Erro ao salvar escala: ' + error.message);
+        await SweetAlert.error('Erro', 'Erro ao salvar escala: ' + error.message);
     }
 }
 
+// FUNÇÃO DELETE MODIFICADA COM SWEETALERT2
 async function deleteSchedule(id, user) {
-    if (!confirm('Tem certeza que deseja excluir esta escala?')) return;
+    if (!id) return;
 
     try {
+        // Buscar dados da escala para mostrar no confirm
+        const { data: schedule, error: fetchError } = await supabase
+            .from('schedules')
+            .select(`
+                *,
+                departments (name),
+                members (name),
+                services (name)
+            `)
+            .eq('id', id)
+            .single();
+
+        if (fetchError) {
+            console.error('Erro ao buscar dados da escala:', fetchError);
+            await SweetAlert.error('Erro', 'Erro ao carregar dados da escala para exclusão');
+            return;
+        }
+
+        if (!schedule) {
+            await SweetAlert.error('Erro', 'Escala não encontrada');
+            return;
+        }
+
+        // CONFIRMAÇÃO COM SWEETALERT2
+        const confirmText = `• Membro: ${schedule.members?.name || 'N/A'}\n• Culto: ${schedule.services?.name || 'N/A'}\n• Data: ${new Date(schedule.date).toLocaleDateString('pt-BR')}\n• Departamento: ${schedule.departments?.name || 'N/A'}${schedule.sector ? `\n• Setor: ${schedule.sector}` : ''}\n\n⚠️ Esta ação não pode ser desfeita.`;
+
+        const confirmed = await SweetAlert.confirm(
+            'Confirmar Exclusão',
+            confirmText,
+            'Sim, Excluir',
+            'Cancelar'
+        );
+
+        if (!confirmed) {
+            console.log('Usuário cancelou a exclusão');
+            return;
+        }
+
+        // Mostrar loading
+        SweetAlert.showLoading('Excluindo escala...');
+
+        // Executar exclusão
         const { error } = await supabase
             .from('schedules')
             .delete()
@@ -645,18 +794,86 @@ async function deleteSchedule(id, user) {
 
         if (error) throw error;
 
-        alert('Escala excluída com sucesso!');
+        SweetAlert.close();
+        await SweetAlert.success('Sucesso!', 'Escala excluída com sucesso!');
         loadSchedules(user);
+
     } catch (error) {
+        SweetAlert.close();
         console.error('Erro ao excluir escala:', error);
-        alert('Erro ao excluir escala: ' + error.message);
+        await SweetAlert.error('Erro', 'Erro ao excluir escala: ' + error.message);
     }
 }
 
-// Função para exportar escalas em PDF - COM PAGINAÇÃO INTELIGENTE
+// CORREÇÃO COMPLETA DE TODAS AS ESCALAS EXISTENTES - MODIFICADA COM SWEETALERT2
+async function completeFixAllSchedules() {
+    try {
+        console.log('=== CORREÇÃO COMPLETA DE TODAS AS ESCALAS ===');
+
+        const confirmed = await SweetAlert.confirm(
+            'Correção de Escalas',
+            'Esta ação irá verificar e corrigir os dias da semana de todas as escalas existentes. Deseja continuar?',
+            'Sim, Corrigir',
+            'Cancelar'
+        );
+
+        if (!confirmed) return;
+
+        SweetAlert.showLoading('Verificando escalas...');
+
+        const { data: schedules, error } = await supabase
+            .from('schedules')
+            .select('id, date, day_of_week');
+
+        if (error) throw error;
+
+        let fixed = 0;
+        let alreadyCorrect = 0;
+
+        for (const schedule of schedules) {
+            const correctDay = calculateDayOfWeek(schedule.date);
+
+            if (schedule.day_of_week !== correctDay) {
+                console.log(`🔧 Corrigindo ${schedule.date}: ${schedule.day_of_week} (${getDayOfWeekName(schedule.day_of_week)}) -> ${correctDay} (${getDayOfWeekName(correctDay)})`);
+
+                const { error: updateError } = await supabase
+                    .from('schedules')
+                    .update({ day_of_week: correctDay })
+                    .eq('id', schedule.id);
+
+                if (!updateError) {
+                    fixed++;
+                } else {
+                    console.error('Erro ao atualizar:', updateError);
+                }
+            } else {
+                alreadyCorrect++;
+            }
+        }
+
+        SweetAlert.close();
+
+        console.log(`✅ CORREÇÃO CONCLUÍDA:`);
+        console.log(`   ${fixed} escalas corrigidas`);
+        console.log(`   ${alreadyCorrect} escalas já estavam corretas`);
+        console.log(`   Total: ${fixed + alreadyCorrect} escalas verificadas`);
+
+        await SweetAlert.success(
+            'Correção Aplicada!',
+            `${fixed} escalas corrigidas\n${alreadyCorrect} já estavam corretas`
+        );
+
+    } catch (error) {
+        SweetAlert.close();
+        console.error('Erro na correção completa:', error);
+        await SweetAlert.error('Erro na Correção', 'Erro: ' + error.message);
+    }
+}
+
+// Função para exportar escalas em PDF - COM LAYOUT AGRUPADO
 async function exportToPdf() {
     try {
-        console.log('Função exportToPdf chamada');
+        console.log('Função exportToPdf chamada - Layout Agrupado');
 
         const monthYearInput = document.getElementById('schedule-month-year');
         const departmentFilter = document.getElementById('schedule-department-filter');
@@ -666,7 +883,7 @@ async function exportToPdf() {
 
         if (!monthYearInput) {
             console.error('Elemento schedule-month-year não encontrado');
-            alert('Erro: Elemento de filtro não encontrado');
+            await SweetAlert.error('Erro', 'Elemento de filtro não encontrado');
             return;
         }
 
@@ -690,6 +907,9 @@ async function exportToPdf() {
         exportPdfBtn.textContent = 'Gerando PDF...';
         exportPdfBtn.disabled = true;
 
+        // Mostrar loading no SweetAlert2
+        SweetAlert.showLoading('Preparando PDF...');
+
         console.log('Buscando dados do Supabase com filtros...');
 
         // Buscar dados das escalas COM OS FILTROS APLICADOS
@@ -701,7 +921,7 @@ async function exportToPdf() {
             .select(`
                 *,
                 departments (name),
-                members (name),
+                members (name, type),
                 services (name)
             `)
             .gte('date', firstDay.toISOString().split('T')[0])
@@ -729,7 +949,8 @@ async function exportToPdf() {
 
                 // Se há um departamento específico selecionado, verificar se o líder tem acesso
                 if (selectedDepartment !== 'all' && !deptIds.includes(parseInt(selectedDepartment))) {
-                    alert('Acesso não permitido a este departamento');
+                    SweetAlert.close();
+                    await SweetAlert.error('Acesso Negado', 'Acesso não permitido a este departamento');
                     exportPdfBtn.textContent = originalText;
                     exportPdfBtn.disabled = false;
                     return;
@@ -752,7 +973,8 @@ async function exportToPdf() {
         console.log('Escalas encontradas para PDF:', schedules ? schedules.length : 0);
 
         if (!schedules || schedules.length === 0) {
-            alert('Nenhuma escala encontrada para exportar com os filtros selecionados.');
+            SweetAlert.close();
+            await SweetAlert.info('Nenhuma Escala', 'Nenhuma escala encontrada para exportar com os filtros selecionados.');
             // Restaurar botão
             exportPdfBtn.textContent = originalText;
             exportPdfBtn.disabled = false;
@@ -762,14 +984,15 @@ async function exportToPdf() {
         console.log('Verificando jsPDF...');
         if (typeof window.jspdf === 'undefined') {
             console.error('jsPDF não carregado');
-            alert('Erro: Biblioteca jsPDF não carregada. Verifique a conexão com a internet.');
+            SweetAlert.close();
+            await SweetAlert.error('Erro', 'Biblioteca jsPDF não carregada. Verifique a conexão com a internet.');
             // Restaurar botão
             exportPdfBtn.textContent = originalText;
             exportPdfBtn.disabled = false;
             return;
         }
 
-        console.log('Criando PDF com paginação inteligente...');
+        console.log('Criando PDF com layout agrupado...');
 
         // Criar conteúdo do PDF
         const { jsPDF } = window.jspdf;
@@ -835,55 +1058,63 @@ async function exportToPdf() {
             doc.setFontSize(12);
             doc.text('Nenhuma escala encontrada para o período selecionado.', margin, yPosition);
         } else {
-            // NOVA LÓGICA: Calcular altura necessária para cada dia ANTES de desenhar
-            const dayHeights = {};
-
-            dates.forEach(dateStr => {
-                const daySchedules = schedulesByDate[dateStr];
-                const headerHeight = 12; // Altura do cabeçalho da data
-                const tableHeaderHeight = 10; // Altura do cabeçalho da tabela
-                const rowHeight = 10; // Altura de cada linha
-                const spacing = 5; // Espaçamento entre dias
-
-                // Altura total necessária para este dia
-                dayHeights[dateStr] = headerHeight + tableHeaderHeight + (daySchedules.length * rowHeight) + spacing;
-            });
-
-            // Processar cada data com verificação de espaço
+            // Processar cada data
             dates.forEach(dateStr => {
                 const daySchedules = schedulesByDate[dateStr];
 
                 // CORREÇÃO DEFINITIVA: Usar a mesma função confiável do sistema
                 let dayOfWeekIndex = daySchedules[0]?.day_of_week;
-
-                // Se não tiver day_of_week salvo ou estiver incorreto, recalcular
                 if (dayOfWeekIndex === undefined || dayOfWeekIndex === null) {
                     dayOfWeekIndex = calculateDayOfWeek(dateStr);
                 }
 
-                // VERIFICAÇÃO EXTRA: Se o dia calculado for diferente do salvo, usar o calculado
                 const calculatedDay = calculateDayOfWeek(dateStr);
                 if (dayOfWeekIndex !== calculatedDay) {
-                    console.warn(`Dia incorreto no PDF para ${dateStr}: salvo=${dayOfWeekIndex}, calculado=${calculatedDay}. Usando calculado.`);
                     dayOfWeekIndex = calculatedDay;
                 }
 
                 const dayOfWeek = getDayOfWeekName(dayOfWeekIndex);
                 const formattedDate = dateStr.split('-').reverse().join('/');
 
-                // VERIFICAÇÃO DE ESPAÇO NA PÁGINA - CORREÇÃO APLICADA
-                const spaceNeeded = dayHeights[dateStr];
-                const spaceAvailable = pageHeight - yPosition - 20; // 20px para rodapé
+                // AGRUPAMENTO: Agrupar por culto e departamento
+                const groupedSchedules = {};
 
-                console.log(`Data: ${dateStr}, Espaço necessário: ${spaceNeeded}, Espaço disponível: ${spaceAvailable}, Posição Y: ${yPosition}`);
+                daySchedules.forEach(schedule => {
+                    const key = `${schedule.service_id}-${schedule.department_id}`;
 
-                // Se não couber na página atual, criar nova página
-                if (spaceNeeded > spaceAvailable) {
-                    console.log(`Criando nova página para ${dateStr} - necessário: ${spaceNeeded}, disponível: ${spaceAvailable}`);
+                    if (!groupedSchedules[key]) {
+                        groupedSchedules[key] = {
+                            service: schedule.services,
+                            department: schedule.departments,
+                            schedules: []
+                        };
+                    }
+
+                    groupedSchedules[key].schedules.push(schedule);
+                });
+
+                // Ordenar grupos
+                const sortedGroups = Object.values(groupedSchedules).sort((a, b) => {
+                    const serviceCompare = a.service.name.localeCompare(b.service.name);
+                    if (serviceCompare !== 0) return serviceCompare;
+                    return a.department.name.localeCompare(b.department.name);
+                });
+
+                // Calcular altura necessária para esta data
+                let dateHeight = 0;
+                sortedGroups.forEach(group => {
+                    // Altura do grupo: 1 linha por membro + espaçamento
+                    dateHeight += group.schedules.length * 8 + 5;
+                });
+
+                // VERIFICAÇÃO DE ESPAÇO NA PÁGINA
+                const spaceAvailable = pageHeight - yPosition - 30;
+                if (dateHeight > spaceAvailable) {
+                    console.log(`Criando nova página para ${dateStr}`);
                     doc.addPage();
                     yPosition = margin;
 
-                    // Redesenhar cabeçalho da página na nova página
+                    // Redesenhar cabeçalho da página
                     doc.setFontSize(20);
                     doc.setFont('helvetica', 'bold');
                     doc.setTextColor(102, 126, 234);
@@ -898,9 +1129,6 @@ async function exportToPdf() {
                     doc.setFontSize(10);
                     doc.setTextColor(0, 0, 0);
                 }
-
-                // DEBUG: Log para verificar as datas no PDF
-                console.log('PDF - Data:', dateStr, 'Dia calculado:', dayOfWeekIndex, 'Nome:', dayOfWeek);
 
                 // Data/dia da semana
                 doc.setFont('helvetica', 'bold');
@@ -925,68 +1153,92 @@ async function exportToPdf() {
 
                 yPosition += 10;
 
-                // Linhas da tabela
-                doc.setFont('helvetica', 'normal');
-                doc.setTextColor(0, 0, 0);
+                // Renderizar cada grupo
+                sortedGroups.forEach((group, groupIndex) => {
+                    const { service, department, schedules } = group;
 
-                // ORDENAÇÃO: Ordenar escalas por culto, departamento e setor dentro de cada data
-                const sortedSchedules = daySchedules.sort((a, b) => {
-                    // Primeiro por culto (service_id)
-                    if (a.service_id !== b.service_id) {
-                        return a.service_id - b.service_id;
-                    }
+                    // Ordenar escalas por setor e membro
+                    const sortedSchedules = schedules.sort((a, b) => {
+                        const sectorCompare = (a.sector || '').localeCompare(b.sector || '');
+                        if (sectorCompare !== 0) return sectorCompare;
+                        return a.members.name.localeCompare(b.members.name);
+                    });
 
-                    // Depois por departamento (department_id)
-                    if (a.department_id !== b.department_id) {
-                        return a.department_id - b.department_id;
-                    }
+                    // Agrupar por setor dentro do grupo
+                    const schedulesBySector = {};
+                    sortedSchedules.forEach(schedule => {
+                        const sector = schedule.sector || 'Sem setor específico';
+                        if (!schedulesBySector[sector]) {
+                            schedulesBySector[sector] = [];
+                        }
+                        schedulesBySector[sector].push(schedule);
+                    });
 
-                    // Finalmente por setor (ordem alfabética)
-                    return a.sector.localeCompare(b.sector);
+                    const sortedSectors = Object.keys(schedulesBySector).sort((a, b) => a.localeCompare(b));
+                    let currentPosition = 0;
+
+                    // Renderizar cada setor
+                    sortedSectors.forEach((sector, sectorIndex) => {
+                        const sectorSchedules = schedulesBySector[sector];
+
+                        // Renderizar cada membro do setor
+                        sectorSchedules.forEach((schedule, scheduleIndex) => {
+                            const isFirstInGroup = currentPosition === 0;
+                            const isFirstInSector = scheduleIndex === 0;
+
+                            // VERIFICAÇÃO DE ESPAÇO PARA LINHA
+                            if (yPosition > pageHeight - 20) {
+                                console.log('Criando nova página para linha individual');
+                                doc.addPage();
+                                yPosition = margin;
+
+                                // Redesenhar cabeçalho da tabela
+                                doc.setFont('helvetica', 'bold');
+                                doc.setTextColor(255, 255, 255);
+                                doc.setFillColor(128, 128, 128);
+                                doc.rect(margin, yPosition, pageWidth - (margin * 2), 8, 'F');
+                                doc.text('Culto', margin + 5, yPosition + 6);
+                                doc.text('Departamento', margin + colWidth + 5, yPosition + 6);
+                                doc.text('Setor', margin + (colWidth * 2) + 5, yPosition + 6);
+                                doc.text('Membro', margin + (colWidth * 3) + 5, yPosition + 6);
+                                yPosition += 10;
+                            }
+
+                            // Cor de fundo alternada para linhas
+                            if (currentPosition % 2 === 0) {
+                                doc.setFillColor(245, 245, 245);
+                                doc.rect(margin, yPosition - 2, pageWidth - (margin * 2), 8, 'F');
+                            }
+
+                            // Primeira linha do grupo - desenhar culto e departamento
+                            if (isFirstInGroup && isFirstInSector) {
+                                doc.setFont('helvetica', 'bold');
+                                doc.setTextColor(0, 0, 0);
+                                doc.text(service.name.substring(0, 15), margin + 5, yPosition + 4);
+                                doc.text(department.name.substring(0, 15), margin + colWidth + 5, yPosition + 4);
+                            }
+
+                            // Primeira linha do setor - desenhar setor
+                            if (isFirstInSector) {
+                                doc.setFont('helvetica', 'bold');
+                                doc.setTextColor(80, 80, 80);
+                                const displaySector = sector !== 'Sem setor específico' ? sector.substring(0, 12) : '-';
+                                doc.text(displaySector, margin + (colWidth * 2) + 5, yPosition + 4);
+                            }
+
+                            // CORREÇÃO: Sempre desenhar o membro (SEM o tipo)
+                            doc.setFont('helvetica', 'normal');
+                            doc.setTextColor(0, 0, 0);
+                            const memberName = schedule.members.name.substring(0, 20); // Aumentei o limite para compensar a remoção do tipo
+                            doc.text(memberName, margin + (colWidth * 3) + 5, yPosition + 4);
+
+                            yPosition += 8;
+                            currentPosition++;
+                        });
+                    });
                 });
 
-                sortedSchedules.forEach((schedule, index) => {
-                    // VERIFICAÇÃO DE ESPAÇO PARA CADA LINHA - CORREÇÃO EXTRA
-                    if (yPosition > pageHeight - 20) {
-                        console.log('Criando nova página para linha individual');
-                        doc.addPage();
-                        yPosition = margin;
-
-                        // Redesenhar cabeçalho da tabela na nova página para continuidade
-                        doc.setFont('helvetica', 'bold');
-                        doc.setTextColor(255, 255, 255);
-                        doc.setFillColor(128, 128, 128);
-                        doc.rect(margin, yPosition, pageWidth - (margin * 2), 8, 'F');
-                        doc.text('Culto', margin + 5, yPosition + 6);
-                        doc.text('Departamento', margin + colWidth + 5, yPosition + 6);
-                        doc.text('Setor', margin + (colWidth * 2) + 5, yPosition + 6);
-                        doc.text('Membro', margin + (colWidth * 3) + 5, yPosition + 6);
-                        yPosition += 10;
-                        doc.setFont('helvetica', 'normal');
-                        doc.setTextColor(0, 0, 0);
-                    }
-
-                    // Cor de fundo alternada para linhas
-                    if (index % 2 === 0) {
-                        doc.setFillColor(245, 245, 245);
-                        doc.rect(margin, yPosition - 2, pageWidth - (margin * 2), 8, 'F');
-                    }
-
-                    // Conteúdo das células (texto reduzido)
-                    const culto = schedule.services?.name || '-';
-                    const depto = schedule.departments?.name || '-';
-                    const setor = schedule.sector || '-';
-                    const membro = schedule.members?.name || '-';
-
-                    doc.text(culto.substring(0, 15), margin + 5, yPosition + 4);
-                    doc.text(depto.substring(0, 15), margin + colWidth + 5, yPosition + 4);
-                    doc.text(setor.substring(0, 15), margin + (colWidth * 2) + 5, yPosition + 4);
-                    doc.text(membro.substring(0, 15), margin + (colWidth * 3) + 5, yPosition + 4);
-
-                    yPosition += 10;
-                });
-
-                yPosition += 5; // Espaço entre datas
+                yPosition += 10; // Espaço entre datas
             });
         }
 
@@ -1048,11 +1300,13 @@ async function exportToPdf() {
         exportPdfBtn.disabled = false;
 
         console.log('PDF gerado com sucesso! Nome do arquivo:', fileName);
-        showMessageGlobal('PDF gerado com sucesso!', 'success');
+        SweetAlert.close();
+        await SweetAlert.success('Sucesso!', 'PDF gerado com sucesso!');
 
     } catch (error) {
+        SweetAlert.close();
         console.error('Erro ao gerar PDF:', error);
-        alert('Erro ao gerar PDF: ' + error.message);
+        await SweetAlert.error('Erro', 'Erro ao gerar PDF: ' + error.message);
 
         // Restaurar botão em caso de erro
         const exportPdfBtn = document.getElementById('export-pdf');
@@ -1060,54 +1314,6 @@ async function exportToPdf() {
             exportPdfBtn.textContent = 'Exportar PDF';
             exportPdfBtn.disabled = false;
         }
-    }
-}
-
-// CORREÇÃO COMPLETA DE TODAS AS ESCALAS EXISTENTES
-async function completeFixAllSchedules() {
-    try {
-        console.log('=== CORREÇÃO COMPLETA DE TODAS AS ESCALAS ===');
-
-        const { data: schedules, error } = await supabase
-            .from('schedules')
-            .select('id, date, day_of_week');
-
-        if (error) throw error;
-
-        let fixed = 0;
-        let alreadyCorrect = 0;
-
-        for (const schedule of schedules) {
-            const correctDay = calculateDayOfWeek(schedule.date);
-
-            if (schedule.day_of_week !== correctDay) {
-                console.log(`🔧 Corrigindo ${schedule.date}: ${schedule.day_of_week} (${getDayOfWeekName(schedule.day_of_week)}) -> ${correctDay} (${getDayOfWeekName(correctDay)})`);
-
-                const { error: updateError } = await supabase
-                    .from('schedules')
-                    .update({ day_of_week: correctDay })
-                    .eq('id', schedule.id);
-
-                if (!updateError) {
-                    fixed++;
-                } else {
-                    console.error('Erro ao atualizar:', updateError);
-                }
-            } else {
-                alreadyCorrect++;
-            }
-        }
-
-        console.log(`✅ CORREÇÃO CONCLUÍDA:`);
-        console.log(`   ${fixed} escalas corrigidas`);
-        console.log(`   ${alreadyCorrect} escalas já estavam corretas`);
-        console.log(`   Total: ${fixed + alreadyCorrect} escalas verificadas`);
-
-        alert(`✅ Correção aplicada!\n${fixed} escalas corrigidas\n${alreadyCorrect} já estavam corretas`);
-
-    } catch (error) {
-        console.error('Erro na correção completa:', error);
-        alert('❌ Erro na correção: ' + error.message);
     }
 }
 
@@ -1296,4 +1502,14 @@ async function loadMembersForDepartment(departmentId, memberSelect, allMembers) 
     } finally {
         setSelectLoading(memberSelect, false);
     }
+}
+
+// Verificação de carregamento do SweetAlert2
+console.log('SweetAlert2 carregado:', typeof Swal !== 'undefined');
+console.log('SweetAlert utilitário carregado:', typeof SweetAlert !== 'undefined');
+
+if (typeof Swal !== 'undefined' && typeof SweetAlert !== 'undefined') {
+    console.log('✅ SweetAlert2 está funcionando corretamente!');
+} else {
+    console.error('❌ SweetAlert2 não foi carregado corretamente!');
 }
