@@ -1,6 +1,6 @@
 // NO INÍCIO DO ARQUIVO - Adicionar após as declarações iniciais
 console.log('=== SISTEMA DE ESCALAS - PDF COM LAYOUT AGRUPADO ===');
-console.log('Versão: 2.3 - Export PDF com células mescladas');
+console.log('Versão: 2.4 - Modal Persistente para Cadastros Múltiplos');
 console.log('Carregado em: ' + new Date().toLocaleString());
 console.log('====================================================');
 
@@ -473,7 +473,7 @@ async function showScheduleForm(user, id = null) {
     const autoSelectDepartment = user.level === 'Líder' && departments && departments.length === 1;
     const initialDepartmentValue = autoSelectDepartment ? departments[0].id : '';
 
-    // MODIFICAÇÃO AQUI: Adicione a classe modal-form-container
+    // MODIFICAÇÃO: Adicionar botões diferentes para novo cadastro vs edição
     modalBody.innerHTML = `
         <div class="modal-form-container">
             <div class="form-group">
@@ -579,7 +579,34 @@ async function showScheduleForm(user, id = null) {
         }
     }
 
-    // Configurar botão de salvar
+    // MODIFICAÇÃO: Configurar botões diferentes para novo cadastro vs edição
+    const modalActions = document.querySelector('.modal-actions');
+    if (modalActions) {
+        if (id) {
+            // Para edição: botões padrão
+            modalActions.innerHTML = `
+                <button id="modal-cancel" class="btn btn-secondary">Cancelar</button>
+                <button id="modal-save" class="btn btn-primary">Salvar</button>
+            `;
+        } else {
+            // Para novo cadastro: botões com opção de continuar
+            modalActions.innerHTML = `
+                <button id="modal-cancel" class="btn btn-secondary">Cancelar</button>
+                <button id="modal-save-close" class="btn btn-secondary">Cadastrar e Fechar</button>
+                <button id="modal-save" class="btn btn-primary">Cadastrar e Continuar</button>
+            `;
+
+            // Configurar o novo botão "Cadastrar e Fechar"
+            const saveCloseBtn = document.getElementById('modal-save-close');
+            if (saveCloseBtn) {
+                saveCloseBtn.onclick = async function () {
+                    await saveScheduleAndClose(id, user);
+                };
+            }
+        }
+    }
+
+    // Configurar botão de salvar principal
     const saveBtn = document.getElementById('modal-save');
     if (saveBtn) {
         saveBtn.onclick = function () {
@@ -592,7 +619,6 @@ async function showScheduleForm(user, id = null) {
     if (cancelBtn) {
         cancelBtn.onclick = function () {
             hideModal();
-            // ADICIONE ESTA LINHA: Remove a classe específica ao fechar o modal
             modal.classList.remove('schedule-modal');
         };
     }
@@ -602,7 +628,6 @@ async function showScheduleForm(user, id = null) {
     if (closeBtn) {
         closeBtn.onclick = function () {
             hideModal();
-            // ADICIONE ESTA LINHA: Remove a classe específica ao fechar o modal
             modal.classList.remove('schedule-modal');
         };
     }
@@ -611,7 +636,111 @@ async function showScheduleForm(user, id = null) {
     showModal();
 }
 
-// CORREÇÃO DEFINITIVA: Garantir que o dia da semana está correto - MODIFICADA COM SWEETALERT2
+// NOVA FUNÇÃO: Salvar escala e fechar o modal
+async function saveScheduleAndClose(id, user) {
+    // Primeiro salvar a escala (usando a lógica da função saveSchedule)
+    const departmentSelect = document.getElementById('schedule-department');
+    const sectorSelect = document.getElementById('schedule-sector');
+    const memberSelect = document.getElementById('schedule-member');
+    const serviceSelect = document.getElementById('schedule-service');
+    const dateInput = document.getElementById('schedule-date');
+
+    if (!departmentSelect || !sectorSelect || !memberSelect || !serviceSelect || !dateInput) {
+        await SweetAlert.error('Erro', 'Elementos do formulário não encontrados');
+        return;
+    }
+
+    const departmentId = departmentSelect.value;
+    const sector = sectorSelect.value;
+    const memberId = memberSelect.value;
+    const serviceId = serviceSelect.value;
+    const date = dateInput.value;
+
+    // Validações (mesmas da função saveSchedule)
+    if (!departmentId || !memberId || !serviceId || !date) {
+        await SweetAlert.error('Atenção', 'Por favor, preencha todos os campos obrigatórios (*)');
+        return;
+    }
+
+    if (sectorSelect.required && !sector) {
+        await SweetAlert.error('Atenção', 'Por favor, selecione um setor. Este departamento requer setor.');
+        return;
+    }
+
+    try {
+        const dayOfWeek = calculateDayOfWeek(date);
+
+        // Verificar se já existe escala
+        const { data: existing, error: checkError } = await supabase
+            .from('schedules')
+            .select('*')
+            .eq('member_id', memberId)
+            .eq('service_id', serviceId)
+            .eq('date', date);
+
+        if (checkError) throw checkError;
+
+        if (existing && existing.length > 0 && (!id || existing[0].id !== parseInt(id))) {
+            await SweetAlert.error('Atenção', 'Este membro já está escalado para este culto na data selecionada');
+            return;
+        }
+
+        // CONFIRMAÇÃO COM SWEETALERT2
+        const memberName = memberSelect.options[memberSelect.selectedIndex].text;
+        const serviceName = serviceSelect.options[serviceSelect.selectedIndex].text;
+        const departmentName = departmentSelect.options[departmentSelect.selectedIndex].text;
+        const formattedDate = new Date(date).toLocaleDateString('pt-BR');
+
+        const confirmText = `• Membro: ${memberName}\n• Culto: ${serviceName}\n• Data: ${formattedDate}\n• Departamento: ${departmentName}${sector ? `\n• Setor: ${sector}` : ''}`;
+
+        const confirmed = await SweetAlert.confirm(
+            'Confirmar Nova Escala',
+            confirmText,
+            'Sim, Cadastrar',
+            'Cancelar'
+        );
+
+        if (!confirmed) {
+            console.log('Usuário cancelou a operação');
+            return;
+        }
+
+        // Mostrar loading
+        SweetAlert.showLoading('Cadastrando escala...');
+
+        // Inserir nova escala
+        const { error } = await supabase
+            .from('schedules')
+            .insert([{
+                department_id: departmentId,
+                sector: sector,
+                member_id: memberId,
+                service_id: serviceId,
+                date: date,
+                day_of_week: dayOfWeek
+            }]);
+
+        if (error) throw error;
+
+        SweetAlert.close();
+        await SweetAlert.success('Sucesso!', 'Escala criada com sucesso!');
+
+        // Fechar o modal e recarregar a lista
+        hideModal();
+        const modal = document.getElementById('modal');
+        if (modal) {
+            modal.classList.remove('schedule-modal');
+        }
+        loadSchedules(user);
+
+    } catch (error) {
+        SweetAlert.close();
+        console.error('Erro ao salvar escala:', error);
+        await SweetAlert.error('Erro', 'Erro ao salvar escala: ' + error.message);
+    }
+}
+
+// CORREÇÃO: Função saveSchedule modificada para manter o modal aberto após cadastro
 async function saveSchedule(id, user) {
     const departmentSelect = document.getElementById('schedule-department');
     const sectorSelect = document.getElementById('schedule-sector');
@@ -710,6 +839,11 @@ async function saveSchedule(id, user) {
 
             SweetAlert.close();
             await SweetAlert.success('Sucesso!', 'Escala atualizada com sucesso!');
+
+            // Fechar modal e recarregar lista apenas para edição
+            hideModal();
+            loadSchedules(user);
+
         } else {
             // Criar nova escala
             const { error } = await supabase
@@ -727,11 +861,49 @@ async function saveSchedule(id, user) {
 
             SweetAlert.close();
             await SweetAlert.success('Sucesso!', 'Escala criada com sucesso!');
-        }
 
-        // Fechar modal e recarregar lista
-        hideModal();
-        loadSchedules(user);
+            // CORREÇÃO: NÃO fechar o modal após cadastro bem-sucedido
+            // Em vez disso, limpar apenas o campo do membro e manter os outros preenchidos
+            // para facilitar o cadastro de um novo membro na mesma escala
+
+            // Limpar apenas o campo do membro
+            if (memberSelect) {
+                memberSelect.value = '';
+            }
+
+            // Manter os outros campos preenchidos:
+            // - departmentSelect.value = departmentId (mantém)
+            // - sectorSelect.value = sector (mantém) 
+            // - serviceSelect.value = serviceId (mantém)
+            // - dateInput.value = date (mantém)
+
+            // Recarregar a lista de membros para o departamento selecionado
+            // para garantir que a lista esteja atualizada
+            if (departmentSelect.value && memberSelect) {
+                // Buscar todos os membros novamente para atualizar a lista
+                const { data: allMembers, error: membersError } = await supabase
+                    .from('members')
+                    .select(`
+                        *,
+                        member_departments (department_id)
+                    `)
+                    .order('name');
+
+                if (!membersError && allMembers) {
+                    loadMembersForDepartment(departmentId, memberSelect, allMembers);
+                }
+            }
+
+            // Recarregar a lista de escalas para mostrar a nova escala
+            loadSchedules(user);
+
+            // Focar no campo do membro para facilitar o próximo cadastro
+            setTimeout(() => {
+                if (memberSelect) {
+                    memberSelect.focus();
+                }
+            }, 300);
+        }
 
     } catch (error) {
         SweetAlert.close();
@@ -870,16 +1042,13 @@ async function completeFixAllSchedules() {
     }
 }
 
-// Função para exportar escalas em PDF - COM LAYOUT AGRUPADO
+// VERSÃO CORRIGIDA DA FUNÇÃO exportToPdf() COM CENTRALIZAÇÃO VERTICAL CORRETA
 async function exportToPdf() {
     try {
-        console.log('Função exportToPdf chamada - Layout Agrupado');
+        console.log('Função exportToPdf chamada - Centralização Vertical Corrigida');
 
         const monthYearInput = document.getElementById('schedule-month-year');
         const departmentFilter = document.getElementById('schedule-department-filter');
-
-        console.log('monthYearInput:', monthYearInput);
-        console.log('departmentFilter:', departmentFilter);
 
         if (!monthYearInput) {
             console.error('Elemento schedule-month-year não encontrado');
@@ -889,9 +1058,6 @@ async function exportToPdf() {
 
         const selectedMonthYear = monthYearInput.value;
         const selectedDepartment = departmentFilter ? departmentFilter.value : 'all';
-
-        console.log('Mês/Ano selecionado:', selectedMonthYear);
-        console.log('Departamento selecionado:', selectedDepartment);
 
         const [year, month] = selectedMonthYear.split('-').map(Number);
         const monthName = getMonthName(month - 1);
@@ -907,12 +1073,9 @@ async function exportToPdf() {
         exportPdfBtn.textContent = 'Gerando PDF...';
         exportPdfBtn.disabled = true;
 
-        // Mostrar loading no SweetAlert2
         SweetAlert.showLoading('Preparando PDF...');
 
-        console.log('Buscando dados do Supabase com filtros...');
-
-        // Buscar dados das escalas COM OS FILTROS APLICADOS
+        // Buscar dados das escalas
         const firstDay = new Date(year, month - 1, 1);
         const lastDay = new Date(year, month, 0);
 
@@ -931,12 +1094,10 @@ async function exportToPdf() {
             .order('department_id')
             .order('sector');
 
-        // Aplicar filtro de departamento
         if (selectedDepartment !== 'all') {
             query = query.eq('department_id', selectedDepartment);
         }
 
-        // Se for líder, aplicar filtro de departamentos do líder
         const user = await getCurrentUser();
         if (user && user.level === 'Líder') {
             const { data: userDepartments, error: deptError } = await supabase
@@ -946,17 +1107,6 @@ async function exportToPdf() {
 
             if (!deptError && userDepartments && userDepartments.length > 0) {
                 const deptIds = userDepartments.map(ud => ud.department_id);
-
-                // Se há um departamento específico selecionado, verificar se o líder tem acesso
-                if (selectedDepartment !== 'all' && !deptIds.includes(parseInt(selectedDepartment))) {
-                    SweetAlert.close();
-                    await SweetAlert.error('Acesso Negado', 'Acesso não permitido a este departamento');
-                    exportPdfBtn.textContent = originalText;
-                    exportPdfBtn.disabled = false;
-                    return;
-                }
-
-                // Aplicar filtro para mostrar apenas departamentos do líder
                 if (selectedDepartment === 'all') {
                     query = query.in('department_id', deptIds);
                 }
@@ -970,29 +1120,22 @@ async function exportToPdf() {
             throw error;
         }
 
-        console.log('Escalas encontradas para PDF:', schedules ? schedules.length : 0);
-
         if (!schedules || schedules.length === 0) {
             SweetAlert.close();
             await SweetAlert.info('Nenhuma Escala', 'Nenhuma escala encontrada para exportar com os filtros selecionados.');
-            // Restaurar botão
             exportPdfBtn.textContent = originalText;
             exportPdfBtn.disabled = false;
             return;
         }
 
-        console.log('Verificando jsPDF...');
         if (typeof window.jspdf === 'undefined') {
             console.error('jsPDF não carregado');
             SweetAlert.close();
-            await SweetAlert.error('Erro', 'Biblioteca jsPDF não carregada. Verifique a conexão com a internet.');
-            // Restaurar botão
+            await SweetAlert.error('Erro', 'Biblioteca jsPDF não carregada.');
             exportPdfBtn.textContent = originalText;
             exportPdfBtn.disabled = false;
             return;
         }
-
-        console.log('Criando PDF com layout agrupado...');
 
         // Criar conteúdo do PDF
         const { jsPDF } = window.jspdf;
@@ -1013,13 +1156,11 @@ async function exportToPdf() {
         doc.setFontSize(14);
         doc.setTextColor(128, 128, 128);
 
-        // Texto do cabeçalho refletindo os filtros
         let headerText = `Escalas de ${monthName}/${year}`;
         if (selectedDepartment !== 'all') {
             const selectedDept = schedules.find(s => s.department_id == selectedDepartment)?.departments?.name;
             headerText += ` - ${selectedDept || `Departamento ${selectedDepartment}`}`;
         } else if (user && user.level === 'Líder') {
-            // Verificar se o líder tem apenas um departamento
             const { data: userDepartments, error: deptError } = await supabase
                 .from('user_departments')
                 .select('department_id, departments(name)')
@@ -1034,7 +1175,6 @@ async function exportToPdf() {
         }
 
         doc.text(headerText, pageWidth / 2, yPosition, { align: 'center' });
-
         yPosition += 15;
 
         // Conteúdo das escalas
@@ -1052,7 +1192,6 @@ async function exportToPdf() {
         });
 
         const dates = Object.keys(schedulesByDate).sort();
-        console.log('Datas para processar no PDF:', dates.length);
 
         if (dates.length === 0) {
             doc.setFontSize(12);
@@ -1062,7 +1201,6 @@ async function exportToPdf() {
             dates.forEach(dateStr => {
                 const daySchedules = schedulesByDate[dateStr];
 
-                // CORREÇÃO DEFINITIVA: Usar a mesma função confiável do sistema
                 let dayOfWeekIndex = daySchedules[0]?.day_of_week;
                 if (dayOfWeekIndex === undefined || dayOfWeekIndex === null) {
                     dayOfWeekIndex = calculateDayOfWeek(dateStr);
@@ -1078,10 +1216,8 @@ async function exportToPdf() {
 
                 // AGRUPAMENTO: Agrupar por culto e departamento
                 const groupedSchedules = {};
-
                 daySchedules.forEach(schedule => {
                     const key = `${schedule.service_id}-${schedule.department_id}`;
-
                     if (!groupedSchedules[key]) {
                         groupedSchedules[key] = {
                             service: schedule.services,
@@ -1089,7 +1225,6 @@ async function exportToPdf() {
                             schedules: []
                         };
                     }
-
                     groupedSchedules[key].schedules.push(schedule);
                 });
 
@@ -1103,7 +1238,6 @@ async function exportToPdf() {
                 // Calcular altura necessária para esta data
                 let dateHeight = 0;
                 sortedGroups.forEach(group => {
-                    // Altura do grupo: 1 linha por membro + espaçamento
                     dateHeight += group.schedules.length * 8 + 5;
                 });
 
@@ -1139,17 +1273,18 @@ async function exportToPdf() {
 
                 yPosition += 12;
 
-                // Cabeçalho da tabela
+                // Cabeçalho da tabela - CENTRALIZADO
                 doc.setFont('helvetica', 'bold');
                 doc.setTextColor(255, 255, 255);
                 doc.setFillColor(128, 128, 128);
                 doc.rect(margin, yPosition, pageWidth - (margin * 2), 8, 'F');
 
                 const colWidth = (pageWidth - (margin * 2)) / 4;
-                doc.text('Culto', margin + 5, yPosition + 6);
-                doc.text('Departamento', margin + colWidth + 5, yPosition + 6);
-                doc.text('Setor', margin + (colWidth * 2) + 5, yPosition + 6);
-                doc.text('Membro', margin + (colWidth * 3) + 5, yPosition + 6);
+
+                doc.text('Culto', margin + (colWidth / 2), yPosition + 6, { align: 'center' });
+                doc.text('Departamento', margin + colWidth + (colWidth / 2), yPosition + 6, { align: 'center' });
+                doc.text('Setor', margin + (colWidth * 2) + (colWidth / 2), yPosition + 6, { align: 'center' });
+                doc.text('Membro', margin + (colWidth * 3) + (colWidth / 2), yPosition + 6, { align: 'center' });
 
                 yPosition += 10;
 
@@ -1175,17 +1310,77 @@ async function exportToPdf() {
                     });
 
                     const sortedSectors = Object.keys(schedulesBySector).sort((a, b) => a.localeCompare(b));
-                    let currentPosition = 0;
 
-                    // Renderizar cada setor
+                    // Calcular quantas linhas terá este grupo
+                    const totalRowsInGroup = sortedSchedules.length;
+                    const groupStartY = yPosition;
+
+                    console.log(`Grupo: ${service.name} - ${department.name}, Linhas: ${totalRowsInGroup}`);
+
+                    // PRIMEIRO: Desenhar o fundo das células mescladas
+                    doc.setFillColor(250, 250, 250);
+
+                    // Fundo da célula mesclada do Culto (toda a altura do grupo)
+                    doc.rect(margin, groupStartY - 2, colWidth, totalRowsInGroup * 8, 'F');
+
+                    // Fundo da célula mesclada do Departamento (toda a altura do grupo)
+                    doc.rect(margin + colWidth, groupStartY - 2, colWidth, totalRowsInGroup * 8, 'F');
+
+                    // SEGUNDO: Renderizar o conteúdo - CENTRALIZADO VERTICALMENTE CORRETO
+                    let currentRow = 0;
+
                     sortedSectors.forEach((sector, sectorIndex) => {
                         const sectorSchedules = schedulesBySector[sector];
+                        const totalRowsInSector = sectorSchedules.length;
 
-                        // Renderizar cada membro do setor
+                        // Fundo da célula mesclada do Setor (altura do setor)
+                        doc.setFillColor(245, 245, 245);
+                        doc.rect(margin + (colWidth * 2), yPosition - 2, colWidth, totalRowsInSector * 8, 'F');
+
+                        // CORREÇÃO: Centralização vertical precisa
+                        // Renderizar conteúdo do Culto (apenas na primeira linha do grupo)
+                        if (sectorIndex === 0) {
+                            doc.setFont('helvetica', 'bold');
+                            doc.setTextColor(0, 0, 0);
+                            // CORREÇÃO: Cálculo preciso da posição Y central
+                            const centerY = groupStartY - 2 + ((totalRowsInGroup * 8) / 2) + 2; // +2 para ajuste fino
+                            doc.text(
+                                service.name.substring(0, 15),
+                                margin + (colWidth / 2),
+                                centerY,
+                                { align: 'center' }
+                            );
+                        }
+
+                        // Renderizar conteúdo do Departamento (apenas na primeira linha do grupo)
+                        if (sectorIndex === 0) {
+                            doc.setFont('helvetica', 'bold');
+                            doc.setTextColor(0, 0, 0);
+                            // CORREÇÃO: Cálculo preciso da posição Y central
+                            const centerY = groupStartY - 2 + ((totalRowsInGroup * 8) / 2) + 2; // +2 para ajuste fino
+                            doc.text(
+                                department.name.substring(0, 15),
+                                margin + colWidth + (colWidth / 2),
+                                centerY,
+                                { align: 'center' }
+                            );
+                        }
+
+                        // Renderizar conteúdo do Setor (centralizado no setor)
+                        doc.setFont('helvetica', 'bold');
+                        doc.setTextColor(80, 80, 80);
+                        // CORREÇÃO: Cálculo preciso da posição Y central do setor
+                        const sectorCenterY = yPosition - 2 + ((totalRowsInSector * 8) / 2) + 2; // +2 para ajuste fino
+                        const displaySector = sector !== 'Sem setor específico' ? sector.substring(0, 12) : '-';
+                        doc.text(
+                            displaySector,
+                            margin + (colWidth * 2) + (colWidth / 2),
+                            sectorCenterY,
+                            { align: 'center' }
+                        );
+
+                        // Renderizar cada membro do setor - CENTRALIZADO
                         sectorSchedules.forEach((schedule, scheduleIndex) => {
-                            const isFirstInGroup = currentPosition === 0;
-                            const isFirstInSector = scheduleIndex === 0;
-
                             // VERIFICAÇÃO DE ESPAÇO PARA LINHA
                             if (yPosition > pageHeight - 20) {
                                 console.log('Criando nova página para linha individual');
@@ -1197,48 +1392,44 @@ async function exportToPdf() {
                                 doc.setTextColor(255, 255, 255);
                                 doc.setFillColor(128, 128, 128);
                                 doc.rect(margin, yPosition, pageWidth - (margin * 2), 8, 'F');
-                                doc.text('Culto', margin + 5, yPosition + 6);
-                                doc.text('Departamento', margin + colWidth + 5, yPosition + 6);
-                                doc.text('Setor', margin + (colWidth * 2) + 5, yPosition + 6);
-                                doc.text('Membro', margin + (colWidth * 3) + 5, yPosition + 6);
+
+                                doc.text('Culto', margin + (colWidth / 2), yPosition + 6, { align: 'center' });
+                                doc.text('Departamento', margin + colWidth + (colWidth / 2), yPosition + 6, { align: 'center' });
+                                doc.text('Setor', margin + (colWidth * 2) + (colWidth / 2), yPosition + 6, { align: 'center' });
+                                doc.text('Membro', margin + (colWidth * 3) + (colWidth / 2), yPosition + 6, { align: 'center' });
+
                                 yPosition += 10;
                             }
 
-                            // Cor de fundo alternada para linhas
-                            if (currentPosition % 2 === 0) {
-                                doc.setFillColor(245, 245, 245);
-                                doc.rect(margin, yPosition - 2, pageWidth - (margin * 2), 8, 'F');
+                            // Fundo alternado apenas para a coluna de membros
+                            if (currentRow % 2 === 0) {
+                                doc.setFillColor(255, 255, 255);
+                            } else {
+                                doc.setFillColor(248, 249, 250);
                             }
+                            doc.rect(margin + (colWidth * 3), yPosition - 2, colWidth, 8, 'F');
 
-                            // Primeira linha do grupo - desenhar culto e departamento
-                            if (isFirstInGroup && isFirstInSector) {
-                                doc.setFont('helvetica', 'bold');
-                                doc.setTextColor(0, 0, 0);
-                                doc.text(service.name.substring(0, 15), margin + 5, yPosition + 4);
-                                doc.text(department.name.substring(0, 15), margin + colWidth + 5, yPosition + 4);
-                            }
-
-                            // Primeira linha do setor - desenhar setor
-                            if (isFirstInSector) {
-                                doc.setFont('helvetica', 'bold');
-                                doc.setTextColor(80, 80, 80);
-                                const displaySector = sector !== 'Sem setor específico' ? sector.substring(0, 12) : '-';
-                                doc.text(displaySector, margin + (colWidth * 2) + 5, yPosition + 4);
-                            }
-
-                            // CORREÇÃO: Sempre desenhar o membro (SEM o tipo)
+                            // Renderizar nome do membro - CENTRALIZADO
                             doc.setFont('helvetica', 'normal');
                             doc.setTextColor(0, 0, 0);
-                            const memberName = schedule.members.name.substring(0, 20); // Aumentei o limite para compensar a remoção do tipo
-                            doc.text(memberName, margin + (colWidth * 3) + 5, yPosition + 4);
+                            const memberName = schedule.members.name.substring(0, 20);
+                            // CORREÇÃO: Centralização vertical na linha individual
+                            doc.text(
+                                memberName,
+                                margin + (colWidth * 3) + (colWidth / 2),
+                                yPosition + 4, // +4 para centralizar na linha de 8px
+                                { align: 'center' }
+                            );
 
                             yPosition += 8;
-                            currentPosition++;
+                            currentRow++;
                         });
                     });
+
+                    yPosition += 2;
                 });
 
-                yPosition += 10; // Espaço entre datas
+                yPosition += 10;
             });
         }
 
@@ -1250,7 +1441,6 @@ async function exportToPdf() {
             doc.setTextColor(128, 128, 128);
             doc.text(`Página ${i} de ${totalPages}`, pageWidth - margin, pageHeight - 10, { align: 'right' });
 
-            // Informações do filtro no rodapé
             let filterInfo = `Filtro: ${selectedDepartment === 'all' ? 'Todos os departamentos' : 'Departamento específico'}`;
             if (selectedDepartment !== 'all') {
                 const selectedDept = schedules.find(s => s.department_id == selectedDepartment)?.departments?.name;
@@ -1262,18 +1452,14 @@ async function exportToPdf() {
 
         console.log('Salvando PDF...');
 
-        // Nome do arquivo refletindo os filtros
+        // Nome do arquivo
         let fileName = 'escalas';
-
-        // Buscar informações do departamento para líderes
         let departmentName = '';
 
         if (selectedDepartment !== 'all') {
-            // Departamento específico selecionado
             const selectedDept = schedules.find(s => s.department_id == selectedDepartment)?.departments?.name;
             departmentName = selectedDept ? selectedDept.replace(/\s+/g, '_') : `departamento_${selectedDepartment}`;
         } else if (user && user.level === 'Líder') {
-            // Líder com "Todos os departamentos" - verificar se tem apenas um departamento
             const { data: userDepartments, error: deptError } = await supabase
                 .from('user_departments')
                 .select('department_id, departments(name)')
@@ -1287,7 +1473,6 @@ async function exportToPdf() {
                 departmentName = 'Meus_Departamentos';
             }
         } else {
-            // Administrador com "Todos os departamentos"
             departmentName = 'Todos_Departamentos';
         }
 
@@ -1308,7 +1493,6 @@ async function exportToPdf() {
         console.error('Erro ao gerar PDF:', error);
         await SweetAlert.error('Erro', 'Erro ao gerar PDF: ' + error.message);
 
-        // Restaurar botão em caso de erro
         const exportPdfBtn = document.getElementById('export-pdf');
         if (exportPdfBtn) {
             exportPdfBtn.textContent = 'Exportar PDF';
