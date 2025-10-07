@@ -396,7 +396,7 @@ function renderSchedulesList(schedules, month, year, user, selectedDepartment = 
     }
 }
 
-// As demais funções permanecem as mesmas (showScheduleForm, saveSchedule, deleteSchedule, etc.)
+// MODIFICAR A ORDEM DOS CAMPOS NO showScheduleForm
 async function showScheduleForm(user, id = null) {
     const modal = document.getElementById('modal');
     const modalTitle = document.getElementById('modal-title');
@@ -404,9 +404,7 @@ async function showScheduleForm(user, id = null) {
 
     if (!modal || !modalTitle || !modalBody) return;
 
-    // ADICIONE ESTA LINHA: Adiciona classe específica para o modal de escalas
     modal.classList.add('schedule-modal');
-
     modalTitle.textContent = id ? 'Editar Escala' : 'Nova Escala';
 
     // Carregar dados necessários
@@ -460,8 +458,30 @@ async function showScheduleForm(user, id = null) {
     }
 
     let departmentOptions = '<option value="">Selecione</option>';
+    const today = new Date();
+    const todayDay = today.getDate();
+
+    // Verificar se há algum departamento com permissão hoje
+    let hasAnyDepartmentPermission = false;
+
     departments.forEach(dept => {
-        departmentOptions += `<option value="${dept.id}">${dept.name}</option>`;
+        // Verificar se o departamento tem restrição de dia
+        let dayInfo = '';
+        let hasPermission = true;
+
+        if (dept.schedule_day) {
+            if (dept.schedule_day === todayDay) {
+                dayInfo = ' ✅';
+                hasAnyDepartmentPermission = true;
+            } else {
+                dayInfo = ' ❌';
+                hasPermission = false;
+            }
+        } else {
+            // Sem restrição - sempre tem permissão
+            hasAnyDepartmentPermission = true;
+        }
+        departmentOptions += `<option value="${dept.id}" ${!hasPermission ? 'disabled' : ''}>${dept.name}${dayInfo}</option>`;
     });
 
     let serviceOptions = '<option value="">Selecione</option>';
@@ -473,7 +493,12 @@ async function showScheduleForm(user, id = null) {
     const autoSelectDepartment = user.level === 'Líder' && departments && departments.length === 1;
     const initialDepartmentValue = autoSelectDepartment ? departments[0].id : '';
 
-    // MODIFICAÇÃO: Adicionar botões diferentes para novo cadastro vs edição
+    // Verificar permissão para o departamento inicial (se houver)
+    let initialDepartmentPermission = true;
+    if (autoSelectDepartment && departments[0].schedule_day && departments[0].schedule_day !== todayDay) {
+        initialDepartmentPermission = false;
+    }
+
     modalBody.innerHTML = `
         <div class="modal-form-container">
             <div class="form-group">
@@ -484,6 +509,7 @@ async function showScheduleForm(user, id = null) {
                 </select>
                 ${user.level === 'Líder' && departments.length === 1 ?
             '<div class="select-hint">Departamento Associado</div>' : ''}
+                <div id="day-restriction-message" style="font-size: 0.8rem; margin-top: 5px; display: none;"></div>
             </div>
             <div class="form-group">
                 <label for="schedule-sector">Setor <span id="sector-required" style="display: none; color: red;">*</span></label>
@@ -491,6 +517,11 @@ async function showScheduleForm(user, id = null) {
                     <option value="">Selecione um departamento primeiro</option>
                 </select>
                 <div class="select-hint" id="sector-hint">Os setores serão carregados após selecionar um departamento</div>
+            </div>
+            <!-- CORREÇÃO: DATA AGORA VEM DEPOIS DO SETOR -->
+            <div class="form-group">
+                <label for="schedule-date">Data *</label>
+                <input type="date" id="schedule-date" required>
             </div>
             <div class="form-group">
                 <label for="schedule-member">Membro *</label>
@@ -505,9 +536,21 @@ async function showScheduleForm(user, id = null) {
                     ${serviceOptions}
                 </select>
             </div>
-            <div class="form-group">
-                <label for="schedule-date">Data *</label>
-                <input type="date" id="schedule-date" required>
+            
+            <!-- MENSAGEM DE BLOQUEIO -->
+            <div id="blocked-message" style="
+                display: ${!hasAnyDepartmentPermission ? 'block' : 'none'};
+                background: #fed7d7;
+                border: 1px solid #feb2b2;
+                color: #c53030;
+                padding: 15px;
+                border-radius: 6px;
+                text-align: center;
+                margin-top: 15px;
+            ">
+                <strong>⚠️ Cadastro Bloqueado</strong><br>
+                Nenhum dos seus departamentos tem permissão para cadastrar escalas hoje.
+                Verifique os dias de cadastro de cada departamento.
             </div>
         </div>
     `;
@@ -519,25 +562,98 @@ async function showScheduleForm(user, id = null) {
     const departmentSelect = document.getElementById('schedule-department');
     const sectorSelect = document.getElementById('schedule-sector');
     const memberSelect = document.getElementById('schedule-member');
+    const serviceSelect = document.getElementById('schedule-service');
+    const dateInput = document.getElementById('schedule-date');
+    const dayRestrictionMessage = document.getElementById('day-restriction-message');
+    const blockedMessage = document.getElementById('blocked-message');
+
+    // FUNÇÃO PARA ATUALIZAR ESTADO DOS CAMPOS
+    function updateFormFieldsState(hasPermission) {
+        // CORREÇÃO: INCLUIR dateInput NA LISTA DE CAMPOS
+        const fields = [sectorSelect, dateInput, memberSelect, serviceSelect];
+        fields.forEach(field => {
+            if (field) {
+                field.disabled = !hasPermission;
+            }
+        });
+
+        // Atualizar ambos os botões de salvar
+        const saveBtn = document.getElementById('modal-save');
+        const saveCloseBtn = document.getElementById('modal-save-close');
+
+        const buttons = [saveBtn, saveCloseBtn];
+        buttons.forEach(button => {
+            if (button) {
+                button.disabled = !hasPermission;
+                if (!hasPermission) {
+                    button.style.opacity = '0.6';
+                    button.style.cursor = 'not-allowed';
+                } else {
+                    button.style.opacity = '1';
+                    button.style.cursor = 'pointer';
+                }
+            }
+        });
+
+        if (dateInput) {
+            dateInput.addEventListener('change', function () {
+                const departmentId = departmentSelect.value;
+                if (departmentId && this.value) {
+                    // ATUALIZAR APENAS A LISTA DE MEMBROS COM A NOVA DATA
+                    loadMembersForDepartmentWithLimits(departmentId, memberSelect, membersData, this.value);
+                }
+            });
+        }
+    }
 
     // CORREÇÃO: Configurar o departamento inicial para líderes
-    if (departmentSelect && sectorSelect && memberSelect) {
+    if (departmentSelect && sectorSelect && memberSelect && serviceSelect && dateInput) {
         // Se for líder e tem apenas um departamento, selecionar automaticamente
         if (autoSelectDepartment) {
             departmentSelect.value = initialDepartmentValue;
+            // Verificar permissão para o departamento selecionado automaticamente
+            checkAndDisplayDayRestriction(initialDepartmentValue, departments, dayRestrictionMessage);
+            updateFormFieldsState(initialDepartmentPermission);
+
+            // CARREGAR UMA VEZ SÓ - setores e membros
+            loadSectorsForDepartment(initialDepartmentValue, sectorSelect);
+            const currentDate = dateInput.value || new Date().toISOString().split('T')[0];
+            loadMembersForDepartmentWithLimits(initialDepartmentValue, memberSelect, membersData, currentDate);
         }
 
         departmentSelect.addEventListener('change', function () {
             const departmentId = this.value;
+            const selectedOption = this.options[this.selectedIndex];
+            const hasPermission = !selectedOption.disabled;
+
+            // CARREGAR SETORES
             loadSectorsForDepartment(departmentId, sectorSelect);
-            loadMembersForDepartment(departmentId, memberSelect, membersData);
+
+            // CARREGAR MEMBROS APENAS UMA VEZ - com a data atual se disponível
+            const currentDate = dateInput.value || new Date().toISOString().split('T')[0];
+            loadMembersForDepartmentWithLimits(departmentId, memberSelect, membersData, currentDate);
+
+            // Verificar e exibir restrição de dia
+            checkAndDisplayDayRestriction(departmentId, departments, dayRestrictionMessage);
+
+            // Atualizar estado dos campos baseado na permissão
+            updateFormFieldsState(hasPermission);
         });
 
-        // Carregar setores e membros se já houver um departamento selecionado
-        if (departmentSelect.value) {
+        // REMOVER CARREGAMENTO DUPLICADO - já foi feito acima se autoSelectDepartment
+        if (!autoSelectDepartment && departmentSelect.value) {
             loadSectorsForDepartment(departmentSelect.value, sectorSelect);
-            loadMembersForDepartment(departmentSelect.value, memberSelect, membersData);
+            const currentDate = dateInput.value || new Date().toISOString().split('T')[0];
+            loadMembersForDepartmentWithLimits(departmentSelect.value, memberSelect, membersData, currentDate);
+            checkAndDisplayDayRestriction(departmentSelect.value, departments, dayRestrictionMessage);
+
+            const selectedOption = departmentSelect.options[departmentSelect.selectedIndex];
+            const hasPermission = !selectedOption.disabled;
+            updateFormFieldsState(hasPermission);
         }
+
+        // Inicializar estado dos campos
+        updateFormFieldsState(initialDepartmentPermission);
     }
 
     // Preencher formulário se for edição
@@ -551,16 +667,20 @@ async function showScheduleForm(user, id = null) {
         if (!error && schedule) {
             const departmentSelect = document.getElementById('schedule-department');
             const sectorSelect = document.getElementById('schedule-sector');
+            const dateInput = document.getElementById('schedule-date');
             const memberSelect = document.getElementById('schedule-member');
             const serviceSelect = document.getElementById('schedule-service');
-            const dateInput = document.getElementById('schedule-date');
 
-            if (departmentSelect && sectorSelect && memberSelect && serviceSelect && dateInput) {
+            if (departmentSelect && sectorSelect && dateInput && memberSelect && serviceSelect) {
                 departmentSelect.value = schedule.department_id;
 
-                // Carregar setores e membros para o departamento selecionado
+                // Verificar permissão para edição
+                const selectedOption = departmentSelect.options[departmentSelect.selectedIndex];
+                const hasPermission = !selectedOption.disabled;
+
+                // CARREGAR SETORES E MEMBROS APENAS UMA VEZ
                 await loadSectorsForDepartment(schedule.department_id, sectorSelect);
-                await loadMembersForDepartment(schedule.department_id, memberSelect, membersData);
+                await loadMembersForDepartmentWithLimits(schedule.department_id, memberSelect, membersData, schedule.date);
 
                 // Aguardar para garantir carregamento
                 setTimeout(() => {
@@ -571,9 +691,13 @@ async function showScheduleForm(user, id = null) {
                         sectorSelect.value = '';
                     }
 
+                    dateInput.value = schedule.date;
                     memberSelect.value = schedule.member_id;
                     serviceSelect.value = schedule.service_id;
-                    dateInput.value = schedule.date;
+
+                    // Atualizar estado dos campos baseado na permissão
+                    updateFormFieldsState(hasPermission);
+                    checkAndDisplayDayRestriction(schedule.department_id, departments, dayRestrictionMessage);
                 }, 300);
             }
         }
@@ -589,38 +713,52 @@ async function showScheduleForm(user, id = null) {
                 <button id="modal-save" class="btn btn-primary">Salvar</button>
             `;
         } else {
-            // Para novo cadastro: botões com opção de continuar
+            // Para novo cadastro: botões com opção de continuar (RESTAURADO)
             modalActions.innerHTML = `
                 <button id="modal-cancel" class="btn btn-secondary">Cancelar</button>
                 <button id="modal-save-close" class="btn btn-secondary">Cadastrar e Fechar</button>
                 <button id="modal-save" class="btn btn-primary">Cadastrar e Continuar</button>
             `;
 
-            // Configurar o novo botão "Cadastrar e Fechar"
+            // Configurar o novo botão "Cadastrar e Fechar" (RESTAURADO)
             const saveCloseBtn = document.getElementById('modal-save-close');
             if (saveCloseBtn) {
                 saveCloseBtn.onclick = async function () {
                     await saveScheduleAndClose(id, user);
                 };
+
+                // Aplicar estado desabilitado se necessário
+                if (!initialDepartmentPermission) {
+                    saveCloseBtn.disabled = true;
+                    saveCloseBtn.style.opacity = '0.6';
+                    saveCloseBtn.style.cursor = 'not-allowed';
+                }
             }
         }
-    }
 
-    // Configurar botão de salvar principal
-    const saveBtn = document.getElementById('modal-save');
-    if (saveBtn) {
-        saveBtn.onclick = function () {
-            saveSchedule(id, user);
-        };
-    }
+        // Configurar botão de salvar principal
+        const saveBtn = document.getElementById('modal-save');
+        if (saveBtn) {
+            saveBtn.onclick = function () {
+                saveSchedule(id, user);
+            };
 
-    // Configurar botão de cancelar
-    const cancelBtn = document.getElementById('modal-cancel');
-    if (cancelBtn) {
-        cancelBtn.onclick = function () {
-            hideModal();
-            modal.classList.remove('schedule-modal');
-        };
+            // Inicializar estado do botão
+            if (!initialDepartmentPermission && !id) {
+                saveBtn.disabled = true;
+                saveBtn.style.opacity = '0.6';
+                saveBtn.style.cursor = 'not-allowed';
+            }
+        }
+
+        // Configurar botão de cancelar
+        const cancelBtn = document.getElementById('modal-cancel');
+        if (cancelBtn) {
+            cancelBtn.onclick = function () {
+                hideModal();
+                modal.classList.remove('schedule-modal');
+            };
+        }
     }
 
     // Configurar o botão X (close)
@@ -632,13 +770,48 @@ async function showScheduleForm(user, id = null) {
         };
     }
 
+    if (dateInput) {
+        dateInput.addEventListener('change', function () {
+            const departmentId = departmentSelect.value;
+            if (departmentId && this.value) {
+                updateMemberListWithLimits(departmentId, memberSelect, this.value);
+            }
+        });
+    }
+
     // Mostrar modal
     showModal();
 }
 
-// NOVA FUNÇÃO: Salvar escala e fechar o modal
+// ATUALIZAR FUNÇÃO AUXILIAR PARA INCLUIR INFORMAÇÃO DE BLOQUEIO
+async function checkAndDisplayDayRestriction(departmentId, departments, messageElement) {
+    if (!departmentId || !messageElement) return;
+
+    const department = departments.find(dept => dept.id == departmentId);
+    if (!department) return;
+
+    if (department.schedule_day) {
+        const today = new Date();
+        const todayDay = today.getDate();
+
+        if (department.schedule_day === todayDay) {
+            messageElement.innerHTML = `✅ Hoje é o dia do ${department.name} cadastrar escalas!`;
+            messageElement.style.color = '#38a169';
+            messageElement.style.display = 'block';
+        } else {
+            messageElement.innerHTML = `❌ O ${department.name} só pode cadastrar escalas no dia ${department.schedule_day} de cada mês.`;
+            messageElement.style.color = '#e53e3e';
+            messageElement.style.display = 'block';
+        }
+    } else {
+        messageElement.innerHTML = `✅ O ${department.name} pode cadastrar escalas em qualquer dia.`;
+        messageElement.style.color = '#38a169';
+        messageElement.style.display = 'block';
+    }
+}
+
+// ATUALIZAR saveScheduleAndClose PARA PASSAR O scheduleId
 async function saveScheduleAndClose(id, user) {
-    // Primeiro salvar a escala (usando a lógica da função saveSchedule)
     const departmentSelect = document.getElementById('schedule-department');
     const sectorSelect = document.getElementById('schedule-sector');
     const memberSelect = document.getElementById('schedule-member');
@@ -664,6 +837,20 @@ async function saveScheduleAndClose(id, user) {
 
     if (sectorSelect.required && !sector) {
         await SweetAlert.error('Atenção', 'Por favor, selecione um setor. Este departamento requer setor.');
+        return;
+    }
+
+    // VALIDAÇÃO DO DIA DE CADASTRO
+    const permissionCheck = await checkScheduleCreationPermission(departmentId, user);
+    if (!permissionCheck.allowed) {
+        await SweetAlert.error('Dia Não Permitido', permissionCheck.message);
+        return;
+    }
+
+    // VALIDAÇÃO DO LIMITE MENSAL DO MEMBRO - CORREÇÃO: PASSAR O ID DA ESCALA
+    const limitCheck = await checkMemberMonthlyLimit(memberId, departmentId, date, id);
+    if (!limitCheck.allowed) {
+        await SweetAlert.error('Limite Atingido', limitCheck.message);
         return;
     }
 
@@ -725,7 +912,7 @@ async function saveScheduleAndClose(id, user) {
         SweetAlert.close();
         await SweetAlert.success('Sucesso!', 'Escala criada com sucesso!');
 
-        // Fechar o modal e recarregar a lista
+        // Fechar o modal e recarregar a lista (COMPORTAMENTO DO "CADASTRAR E FECHAR")
         hideModal();
         const modal = document.getElementById('modal');
         if (modal) {
@@ -740,7 +927,7 @@ async function saveScheduleAndClose(id, user) {
     }
 }
 
-// CORREÇÃO: Função saveSchedule modificada para manter o modal aberto após cadastro
+// ATUALIZAR saveSchedule PARA PASSAR O scheduleId
 async function saveSchedule(id, user) {
     const departmentSelect = document.getElementById('schedule-department');
     const sectorSelect = document.getElementById('schedule-sector');
@@ -765,7 +952,20 @@ async function saveSchedule(id, user) {
         return;
     }
 
-    // Validação: Verificar se setor é obrigatório mas não foi preenchido
+    // VALIDAÇÃO DO DIA DE CADASTRO
+    const permissionCheck = await checkScheduleCreationPermission(departmentId, user);
+    if (!permissionCheck.allowed) {
+        await SweetAlert.error('Dia Não Permitido', permissionCheck.message);
+        return;
+    }
+
+    // VALIDAÇÃO DO LIMITE MENSAL DO MEMBRO - CORREÇÃO: PASSAR O ID DA ESCALA
+    const limitCheck = await checkMemberMonthlyLimit(memberId, departmentId, date, id);
+    if (!limitCheck.allowed) {
+        await SweetAlert.error('Limite Atingido', limitCheck.message);
+        return;
+    }
+
     if (sectorSelect.required && !sector) {
         await SweetAlert.error('Atenção', 'Por favor, selecione um setor. Este departamento requer setor.');
         return;
@@ -774,7 +974,123 @@ async function saveSchedule(id, user) {
     try {
         const dayOfWeek = calculateDayOfWeek(date);
 
-        // Verificar se já existe escala para este membro no mesmo culto e data
+        // Verificar se já existe escala (esta verificação permanece separada)
+        const { data: existing, error: checkError } = await supabase
+            .from('schedules')
+            .select('*')
+            .eq('member_id', memberId)
+            .eq('service_id', serviceId)
+            .eq('date', date);
+
+        if (checkError) {
+            console.error('Erro ao verificar escala:', checkError);
+            await SweetAlert.error('Erro', 'Erro ao verificar escala existente');
+            return;
+        }
+
+        if (existing && existing.length > 0 && (!id || existing[0].id !== parseInt(id))) {
+            await SweetAlert.error('Atenção', 'Este membro já está escalado para este culto na data selecionada');
+            return;
+        }
+
+        // CONFIRMAÇÃO COM SWEETALERT2
+        const memberName = memberSelect.options[memberSelect.selectedIndex].text;
+        const serviceName = serviceSelect.options[serviceSelect.selectedIndex].text;
+        const departmentName = departmentSelect.options[departmentSelect.selectedIndex].text;
+        const formattedDate = new Date(date).toLocaleDateString('pt-BR');
+
+        const confirmText = `• Membro: ${memberName}\n• Culto: ${serviceName}\n• Data: ${formattedDate}\n• Departamento: ${departmentName}${sector ? `\n• Setor: ${sector}` : ''}`;
+
+        const confirmed = await SweetAlert.confirm(
+            'Confirmar Nova Escala',
+            confirmText,
+            'Sim, Cadastrar',
+            'Cancelar'
+        );
+
+        if (!confirmed) {
+            console.log('Usuário cancelou a operação');
+            return;
+        }
+
+        // Mostrar loading
+        SweetAlert.showLoading('Cadastrando escala...');
+
+        // Inserir nova escala
+        const { error } = await supabase
+            .from('schedules')
+            .insert([{
+                department_id: departmentId,
+                sector: sector,
+                member_id: memberId,
+                service_id: serviceId,
+                date: date,
+                day_of_week: dayOfWeek
+            }]);
+
+        if (error) throw error;
+
+        SweetAlert.close();
+        await SweetAlert.success('Sucesso!', 'Escala criada com sucesso!');
+
+        // Fechar o modal e recarregar a lista
+        hideModal();
+        const modal = document.getElementById('modal');
+        if (modal) {
+            modal.classList.remove('schedule-modal');
+        }
+        loadSchedules(user);
+
+    } catch (error) {
+        SweetAlert.close();
+        console.error('Erro ao salvar escala:', error);
+        await SweetAlert.error('Erro', 'Erro ao salvar escala: ' + error.message);
+    }
+}
+
+// CORREÇÃO DA FUNÇÃO saveSchedule NO schedules.js
+async function saveSchedule(id, user) {
+    const departmentSelect = document.getElementById('schedule-department');
+    const sectorSelect = document.getElementById('schedule-sector');
+    const memberSelect = document.getElementById('schedule-member');
+    const serviceSelect = document.getElementById('schedule-service');
+    const dateInput = document.getElementById('schedule-date');
+
+    if (!departmentSelect || !sectorSelect || !memberSelect || !serviceSelect || !dateInput) {
+        await SweetAlert.error('Erro', 'Elementos do formulário não encontrados');
+        return;
+    }
+
+    const departmentId = departmentSelect.value;
+    const sector = sectorSelect.value;
+    const memberId = memberSelect.value;
+    const serviceId = serviceSelect.value;
+    const date = dateInput.value;
+
+    // Validação básica dos campos obrigatórios
+    if (!departmentId || !memberId || !serviceId || !date) {
+        await SweetAlert.error('Atenção', 'Por favor, preencha todos os campos obrigatórios (*)');
+        return;
+    }
+
+    // VALIDAÇÃO DO DIA DE CADASTRO
+    const permissionCheck = await checkScheduleCreationPermission(departmentId, user);
+    if (!permissionCheck.allowed) {
+        await SweetAlert.error('Dia Não Permitido', permissionCheck.message);
+        return;
+    }
+
+    // VALIDAÇÃO DO LIMITE MENSAL DO MEMBRO
+    const limitCheck = await checkMemberMonthlyLimit(memberId, departmentId, date, id);
+    if (!limitCheck.allowed) {
+        await SweetAlert.error('Limite Atingido', limitCheck.message);
+        return;
+    }
+
+    try {
+        const dayOfWeek = calculateDayOfWeek(date);
+
+        // Verificar se já existe escala
         const { data: existing, error: checkError } = await supabase
             .from('schedules')
             .select('*')
@@ -862,35 +1178,47 @@ async function saveSchedule(id, user) {
             SweetAlert.close();
             await SweetAlert.success('Sucesso!', 'Escala criada com sucesso!');
 
-            // CORREÇÃO: NÃO fechar o modal após cadastro bem-sucedido
-            // Em vez disso, limpar apenas o campo do membro e manter os outros preenchidos
-            // para facilitar o cadastro de um novo membro na mesma escala
+            // CORREÇÃO: AGORA VERIFICAR NOVAMENTE O LIMITE ANTES DE PERMITIR CONTINUAR
+            const newLimitCheck = await checkMemberMonthlyLimit(memberId, departmentId, date);
 
-            // Limpar apenas o campo do membro
+            if (!newLimitCheck.allowed) {
+                // Se atingiu o limite após este cadastro, mostrar mensagem e fechar
+                await SweetAlert.info('Limite Atingido',
+                    `${memberName} atingiu o limite de escalas deste mês. O modal será fechado.`);
+                hideModal();
+                loadSchedules(user);
+                return;
+            }
+
+            // CORREÇÃO: Limpar apenas o campo do membro e atualizar a lista de membros
             if (memberSelect) {
                 memberSelect.value = '';
             }
 
-            // Manter os outros campos preenchidos:
-            // - departmentSelect.value = departmentId (mantém)
-            // - sectorSelect.value = sector (mantém) 
-            // - serviceSelect.value = serviceId (mantém)
-            // - dateInput.value = date (mantém)
-
             // Recarregar a lista de membros para o departamento selecionado
-            // para garantir que a lista esteja atualizada
+            // para garantir que a lista esteja atualizada com os limites
             if (departmentSelect.value && memberSelect) {
                 // Buscar todos os membros novamente para atualizar a lista
                 const { data: allMembers, error: membersError } = await supabase
                     .from('members')
                     .select(`
                         *,
-                        member_departments (department_id)
+                        member_departments (department_id, monthly_limit)
                     `)
                     .order('name');
 
                 if (!membersError && allMembers) {
                     loadMembersForDepartment(departmentId, memberSelect, allMembers);
+
+                    // CORREÇÃO: Verificar se o membro atual ainda está disponível
+                    const memberStillAvailable = Array.from(memberSelect.options).some(
+                        option => option.value === memberId
+                    );
+
+                    if (!memberStillAvailable) {
+                        await SweetAlert.info('Membro Indisponível',
+                            `${memberName} não está mais disponível para escalas este mês. Selecione outro membro.`);
+                    }
                 }
             }
 
@@ -1674,6 +2002,359 @@ async function loadMembersForDepartment(departmentId, memberSelect, allMembers) 
                 option.textContent = member.name;
                 memberSelect.appendChild(option);
             });
+        }
+
+    } catch (error) {
+        console.error('Erro ao carregar membros:', error);
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'Erro ao carregar membros';
+        option.disabled = true;
+        memberSelect.appendChild(option);
+    } finally {
+        setSelectLoading(memberSelect, false);
+    }
+}
+
+// VERIFICAR O DIA DE CADASTRO
+async function checkScheduleCreationPermission(departmentId, user) {
+    try {
+        // Buscar informações do departamento
+        const { data: department, error } = await supabase
+            .from('departments')
+            .select('name, schedule_day')
+            .eq('id', departmentId)
+            .single();
+
+        if (error) {
+            console.error('Erro ao buscar departamento:', error);
+            return { allowed: true }; // Em caso de erro, permitir por segurança
+        }
+
+        // Se não há restrição de dia, permitir
+        if (!department.schedule_day) {
+            return { allowed: true };
+        }
+
+        // Verificar se hoje é o dia permitido
+        const today = new Date();
+        const todayDay = today.getDate();
+        const scheduledDay = department.schedule_day;
+
+        if (todayDay === scheduledDay) {
+            return { allowed: true };
+        } else {
+            // Buscar qual departamento tem permissão hoje
+            const { data: allowedDepartment, error: deptError } = await supabase
+                .from('departments')
+                .select('name')
+                .eq('schedule_day', todayDay)
+                .single();
+
+            let message = `Hoje não é o dia do ${department.name} cadastrar escalas. `;
+            message += `O ${department.name} só pode cadastrar escalas no dia ${scheduledDay} de cada mês.`;
+
+            if (allowedDepartment && !deptError) {
+                message += ` Hoje é o dia do ${allowedDepartment.name}.`;
+            }
+
+            return {
+                allowed: false,
+                message: message
+            };
+        }
+    } catch (error) {
+        console.error('Erro ao verificar permissão:', error);
+        return { allowed: true }; // Em caso de erro, permitir por segurança
+    }
+}
+
+// CORREÇÃO DA FUNÇÃO checkMemberMonthlyLimit NO schedules.js
+async function checkMemberMonthlyLimit(memberId, departmentId, date, scheduleId = null) {
+    try {
+        // Buscar o limite mensal do membro para este departamento
+        const { data: memberDept, error: limitError } = await supabase
+            .from('member_departments')
+            .select('monthly_limit')
+            .eq('member_id', memberId)
+            .eq('department_id', departmentId)
+            .single();
+
+        if (limitError || !memberDept) {
+            console.log('Membro não tem limite definido para este departamento');
+            return { allowed: true }; // Sem limite definido
+        }
+
+        const monthlyLimit = memberDept.monthly_limit;
+
+        // Se não há limite definido, permitir
+        if (!monthlyLimit) {
+            return { allowed: true };
+        }
+
+        // Calcular primeiro e último dia do mês da data selecionada
+        const selectedDate = new Date(date);
+        const year = selectedDate.getFullYear();
+        const month = selectedDate.getMonth();
+
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+
+        // Contar quantas vezes o membro já foi escalado neste departamento no mês
+        let query = supabase
+            .from('schedules')
+            .select('id')
+            .eq('member_id', memberId)
+            .eq('department_id', departmentId)
+            .gte('date', firstDay.toISOString().split('T')[0])
+            .lte('date', lastDay.toISOString().split('T')[0]);
+
+        // Se for uma edição, excluir a própria escala da contagem
+        if (scheduleId) {
+            query = query.neq('id', scheduleId);
+        }
+
+        const { data: existingSchedules, error: countError } = await query;
+
+        if (countError) {
+            console.error('Erro ao contar escalas:', countError);
+            return { allowed: true }; // Em caso de erro, permitir por segurança
+        }
+
+        const currentCount = existingSchedules ? existingSchedules.length : 0;
+
+        // CORREÇÃO: Verificar se adicionando esta escala ultrapassa o limite
+        const totalAfterThis = currentCount + 1;
+
+        if (totalAfterThis > monthlyLimit) {
+            // Buscar nome do membro para a mensagem
+            const { data: member, error: memberError } = await supabase
+                .from('members')
+                .select('name')
+                .eq('id', memberId)
+                .single();
+
+            const memberName = memberError ? 'Este membro' : member.name;
+
+            return {
+                allowed: false,
+                message: `${memberName} já atingiu o limite de ${monthlyLimit} escala(s) por mês neste departamento. ` +
+                    `Já foram cadastradas ${currentCount} escala(s) este mês. ` +
+                    `Cadastrando mais uma, seriam ${totalAfterThis} escala(s).`
+            };
+        }
+
+        return {
+            allowed: true,
+            currentCount: currentCount,
+            limit: monthlyLimit,
+            remaining: monthlyLimit - totalAfterThis
+        };
+
+    } catch (error) {
+        console.error('Erro ao verificar limite do membro:', error);
+        return { allowed: true }; // Em caso de erro, permitir por segurança
+    }
+}
+
+// ADICIONAR ESTA FUNÇÃO AUXILIAR NO schedules.js
+async function updateMemberListWithLimits(departmentId, memberSelect, selectedDate) {
+    if (!departmentId || !memberSelect || !selectedDate) return;
+
+    try {
+        // Buscar todos os membros do departamento
+        const { data: allMembers, error: membersError } = await supabase
+            .from('members')
+            .select(`
+                *,
+                member_departments (department_id, monthly_limit)
+            `)
+            .order('name');
+
+        if (membersError) throw membersError;
+
+        // Filtrar membros que pertencem ao departamento selecionado
+        const filteredMembers = allMembers.filter(member => {
+            return member.member_departments &&
+                member.member_departments.some(md => md.department_id == departmentId);
+        });
+
+        // Limpar select de membros
+        memberSelect.innerHTML = '';
+
+        // Adicionar opção padrão
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = 'Selecione um membro';
+        memberSelect.appendChild(defaultOption);
+
+        if (filteredMembers.length === 0) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'Nenhum membro neste departamento';
+            option.disabled = true;
+            memberSelect.appendChild(option);
+        } else {
+            // Para cada membro, verificar o limite mensal
+            for (const member of filteredMembers) {
+                const option = document.createElement('option');
+                option.value = member.id;
+
+                // Verificar limite do membro
+                const memberDept = member.member_departments.find(md => md.department_id == departmentId);
+                const monthlyLimit = memberDept?.monthly_limit;
+
+                if (monthlyLimit) {
+                    // Calcular quantas vezes já foi escalado este mês
+                    const selectedDateObj = new Date(selectedDate);
+                    const year = selectedDateObj.getFullYear();
+                    const month = selectedDateObj.getMonth();
+
+                    const firstDay = new Date(year, month, 1);
+                    const lastDay = new Date(year, month + 1, 0);
+
+                    const { data: existingSchedules, error: countError } = await supabase
+                        .from('schedules')
+                        .select('id')
+                        .eq('member_id', member.id)
+                        .eq('department_id', departmentId)
+                        .gte('date', firstDay.toISOString().split('T')[0])
+                        .lte('date', lastDay.toISOString().split('T')[0]);
+
+                    if (!countError && existingSchedules) {
+                        const currentCount = existingSchedules.length;
+                        const remaining = monthlyLimit - currentCount;
+
+                        if (remaining <= 0) {
+                            // Membro atingiu o limite - desabilitar
+                            option.textContent = `${member.name} (LIMITE ATINGIDO)`;
+                            option.disabled = true;
+                            option.title = `Este membro já atingiu o limite de ${monthlyLimit} escalas este mês`;
+                        } else {
+                            // Membro ainda tem disponibilidade
+                            option.textContent = `${member.name} (${remaining}/${monthlyLimit} disponíveis)`;
+                        }
+                    } else {
+                        option.textContent = member.name;
+                    }
+                } else {
+                    // Sem limite definido
+                    option.textContent = member.name;
+                }
+
+                memberSelect.appendChild(option);
+            }
+        }
+
+    } catch (error) {
+        console.error('Erro ao atualizar lista de membros:', error);
+        // Em caso de erro, carregar lista básica
+        loadMembersForDepartment(departmentId, memberSelect, []);
+    }
+}
+
+// NO schedules.js - CRIAR FUNÇÃO UNIFICADA PARA CARREGAR MEMBROS
+async function loadMembersForDepartmentWithLimits(departmentId, memberSelect, allMembers, selectedDate = null) {
+    if (!departmentId || !memberSelect) return;
+
+    try {
+        setSelectLoading(memberSelect, true);
+
+        // Limpar select de membros
+        memberSelect.innerHTML = '';
+
+        // Adicionar opção padrão
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = 'Selecione um membro';
+        memberSelect.appendChild(defaultOption);
+
+        if (!allMembers || allMembers.length === 0) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'Nenhum membro disponível';
+            option.disabled = true;
+            memberSelect.appendChild(option);
+            return;
+        }
+
+        // Filtrar membros que pertencem ao departamento selecionado
+        const filteredMembers = allMembers.filter(member => {
+            return member.member_departments &&
+                member.member_departments.some(md => md.department_id == departmentId);
+        });
+
+        console.log('Membros filtrados para departamento', departmentId, ':', filteredMembers.length);
+
+        if (filteredMembers.length === 0) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'Nenhum membro neste departamento';
+            option.disabled = true;
+            memberSelect.appendChild(option);
+        } else {
+            // Ordenar membros por nome
+            filteredMembers.sort((a, b) => a.name.localeCompare(b.name));
+
+            // Se não há data selecionada, carregar lista básica
+            if (!selectedDate) {
+                filteredMembers.forEach(member => {
+                    const option = document.createElement('option');
+                    option.value = member.id;
+                    option.textContent = member.name;
+                    memberSelect.appendChild(option);
+                });
+            } else {
+                // Se há data selecionada, carregar com informações de limite
+                for (const member of filteredMembers) {
+                    const option = document.createElement('option');
+                    option.value = member.id;
+
+                    // Verificar limite do membro
+                    const memberDept = member.member_departments.find(md => md.department_id == departmentId);
+                    const monthlyLimit = memberDept?.monthly_limit;
+
+                    if (monthlyLimit && selectedDate) {
+                        // Calcular quantas vezes já foi escalado este mês
+                        const selectedDateObj = new Date(selectedDate);
+                        const year = selectedDateObj.getFullYear();
+                        const month = selectedDateObj.getMonth();
+
+                        const firstDay = new Date(year, month, 1);
+                        const lastDay = new Date(year, month + 1, 0);
+
+                        const { data: existingSchedules, error: countError } = await supabase
+                            .from('schedules')
+                            .select('id')
+                            .eq('member_id', member.id)
+                            .eq('department_id', departmentId)
+                            .gte('date', firstDay.toISOString().split('T')[0])
+                            .lte('date', lastDay.toISOString().split('T')[0]);
+
+                        if (!countError && existingSchedules) {
+                            const currentCount = existingSchedules.length;
+                            const remaining = monthlyLimit - currentCount;
+
+                            if (remaining <= 0) {
+                                // Membro atingiu o limite - desabilitar
+                                option.textContent = `${member.name} (LIMITE ATINGIDO)`;
+                                option.disabled = true;
+                                option.title = `Este membro já atingiu o limite de ${monthlyLimit} escalas este mês`;
+                            } else {
+                                // Membro ainda tem disponibilidade
+                                option.textContent = `${member.name} (${remaining}/${monthlyLimit} disponíveis)`;
+                            }
+                        } else {
+                            option.textContent = member.name;
+                        }
+                    } else {
+                        // Sem limite definido ou sem data selecionada
+                        option.textContent = member.name;
+                    }
+
+                    memberSelect.appendChild(option);
+                }
+            }
         }
 
     } catch (error) {
