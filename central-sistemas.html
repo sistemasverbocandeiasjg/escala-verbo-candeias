@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Central de Sistemas</title>
+
+    <!-- CSS Externo -->
+    <link rel="stylesheet" href="styles/central-sistemas.css">
+</head>
+
+<body>
+    <!-- Cabeçalho do usuário -->
+    <div class="user-header">
+        <div class="user-info">
+            <div class="user-name" id="user-name">Usuário</div>
+            <div class="user-level" id="user-level">Nível</div>
+        </div>
+        <button id="logout-btn" class="logout-btn">Sair</button>
+    </div>
+
+    <div class="central-container">
+        <div class="central-header">
+            <h1>Central de Sistemas</h1>
+            <p>Selecione o sistema que deseja acessar</p>
+        </div>
+
+        <div class="grid">
+            <a class="card" href="dashboard.html">ESCALAS</a>
+            <a class="card" href="sistema2.html">EVENTOS</a>
+            <a class="card" href="sistema3.html">FREQUÊNCIA</a>
+            <a class="card" href="sistema4.html">VERBO SHOP</a>
+            <a class="card" href="sistema5.html">VERBO CAFÉ</a>
+            <a class="card" href="sistema6.html">VERBO BRECHÓ</a>
+            <!-- <a class="card" href="sistema7.html">ATEND.</a>
+            <a class="card" href="sistema8.html">RH</a>
+            <a class="card" href="sistema9.html">OUTROS</a> -->
+        </div>
+
+        <footer>© 2025 Sua Empresa - Todos os direitos reservados</footer>
+    </div>
+
+    <!-- Scripts Externos -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+    <script src="scripts/supabase.js"></script>
+    <script src="scripts/central-sistemas.js"></script>
+</body>
+
+</html>

@@ -62,7 +62,7 @@
                 try {
                     const user = await checkAuth();
                     if (user) {
-                        window.location.href = 'dashboard.html';
+                        window.location.href = 'central-sistemas.html';
                     }
                 } catch (error) {
                     console.log('Usuário não logado:', error);
@@ -95,7 +95,7 @@
 
                         // Redirecionar após login bem-sucedido
                         setTimeout(() => {
-                            window.location.href = 'dashboard.html';
+                            window.location.href = 'central-sistemas.html';
                         }, 1000);
 
                     } catch (error) {
