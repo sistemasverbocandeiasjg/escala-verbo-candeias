@@ -1,4 +1,4 @@
-/* styles/central-sistemas.css - Atualizado com botão configurações */
+/* styles/central-sistemas.css - Atualizado com logo e botão configurações */
 * {
     margin: 0;
     padding: 0;
@@ -15,6 +15,30 @@ body {
     min-height: 100vh;
     padding: 20px;
     position: relative;
+}
+
+/* Container da Logo */
+.logo-container {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.logo {
+    width: 130px;
+    height: 130px;
+    border-radius: 15px;
+    object-fit: contain;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+    padding: 8px;
+    transition: all 0.3s ease;
+}
+
+.logo:hover {
+    transform: scale(1.05);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
 }
 
 .central-container {
@@ -334,162 +358,6 @@ footer {
     grid-template-columns: repeat(2, 1fr);
     gap: 10px;
     margin-top: 10px;
-}
-
-.system-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.system-checkbox input[type="checkbox"] {
-    width: auto;
-}
-
-/* Animações */
-@keyframes fadeInUp {
-    from {
-        opacity: 0;
-        transform: translateY(30px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-@keyframes modalSlideIn {
-    from {
-        transform: translateY(-50px);
-        opacity: 0;
-    }
-
-    to {
-        transform: translateY(0);
-        opacity: 1;
-    }
-}
-
-.central-container {
-    animation: fadeInUp 0.6s ease-out;
-}
-
-.card {
-    animation: fadeInUp 0.6s ease-out;
-    animation-fill-mode: both;
-}
-
-.card:nth-child(1) {
-    animation-delay: 0.1s;
-}
-
-.card:nth-child(2) {
-    animation-delay: 0.2s;
-}
-
-.card:nth-child(3) {
-    animation-delay: 0.3s;
-}
-
-.card:nth-child(4) {
-    animation-delay: 0.4s;
-}
-
-.card:nth-child(5) {
-    animation-delay: 0.5s;
-}
-
-.card:nth-child(6) {
-    animation-delay: 0.6s;
-}
-
-/* Responsividade */
-@media (max-width: 768px) {
-    .central-container {
-        padding: 30px 20px;
-    }
-
-    .grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 15px;
-    }
-
-    .card {
-        padding: 25px 10px;
-        font-size: 16px;
-    }
-
-    .central-header h1 {
-        font-size: 2rem;
-    }
-
-    .user-header {
-        position: relative;
-        top: 0;
-        right: 0;
-        margin-bottom: 20px;
-        justify-content: center;
-        width: 100%;
-        max-width: 300px;
-    }
-
-    .user-form {
-        grid-template-columns: 1fr;
-    }
-
-    .systems-checkboxes {
-        grid-template-columns: 1fr;
-    }
-}
-
-@media (max-width: 480px) {
-    .grid {
-        grid-template-columns: 1fr;
-        gap: 12px;
-    }
-
-    .card {
-        padding: 20px 10px;
-        font-size: 16px;
-    }
-
-    .central-header h1 {
-        font-size: 1.8rem;
-    }
-
-    .user-header {
-        flex-direction: column;
-        gap: 10px;
-        text-align: center;
-        padding: 15px;
-    }
-
-    .user-info {
-        align-items: center;
-    }
-
-    body {
-        padding: 15px;
-    }
-}
-
-/* Adicione estas regras ao final do seu CSS existente */
-
-/* Formulário de usuário */
-.form-actions {
-    display: flex;
-    gap: 10px;
-    justify-content: flex-end;
-    margin-top: 20px;
-}
-
-/* Checkboxes para sistemas */
-.systems-checkboxes {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-    margin-top: 10px;
     padding: 15px;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
@@ -557,11 +425,70 @@ footer {
     font-size: 12px;
 }
 
-/* Responsividade para sistemas checkboxes */
-@media (max-width: 768px) {
-    .systems-checkboxes {
-        grid-template-columns: 1fr;
+/* Formulário de usuário */
+.form-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 20px;
+}
+
+/* Animações */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
     }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes modalSlideIn {
+    from {
+        transform: translateY(-50px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.central-container {
+    animation: fadeInUp 0.6s ease-out;
+}
+
+.card {
+    animation: fadeInUp 0.6s ease-out;
+    animation-fill-mode: both;
+}
+
+.card:nth-child(1) {
+    animation-delay: 0.1s;
+}
+
+.card:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.card:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+.card:nth-child(4) {
+    animation-delay: 0.4s;
+}
+
+.card:nth-child(5) {
+    animation-delay: 0.5s;
+}
+
+.card:nth-child(6) {
+    animation-delay: 0.6s;
 }
 
 /* Estilo para checkboxes desabilitados */
@@ -575,17 +502,6 @@ footer {
 }
 
 /* Mensagem quando não há sistemas */
-.no-systems-message {
-    grid-column: 1 / -1;
-    text-align: center;
-    padding: 40px;
-    color: #718096;
-    background: rgba(255, 255, 255, 0.8);
-    border-radius: 12px;
-    margin: 20px 0;
-}
-
-/* Estilo para mensagem de nenhum sistema disponível */
 .no-systems-message {
     grid-column: 1 / -1;
     text-align: center;
@@ -606,4 +522,84 @@ footer {
 .no-systems-message p {
     margin-bottom: 10px;
     line-height: 1.5;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .central-container {
+        padding: 30px 20px;
+    }
+
+    .grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 15px;
+    }
+
+    .card {
+        padding: 25px 10px;
+        font-size: 16px;
+    }
+
+    .central-header h1 {
+        font-size: 2rem;
+    }
+
+    .user-header {
+        position: relative;
+        top: 0;
+        right: 0;
+        margin-bottom: 20px;
+        justify-content: center;
+        width: 100%;
+        max-width: 300px;
+    }
+
+    .user-form {
+        grid-template-columns: 1fr;
+    }
+
+    .systems-checkboxes {
+        grid-template-columns: 1fr;
+    }
+
+    .logo {
+        width: 70px;
+        height: 70px;
+    }
+}
+
+@media (max-width: 480px) {
+    .grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .card {
+        padding: 20px 10px;
+        font-size: 16px;
+    }
+
+    .central-header h1 {
+        font-size: 1.8rem;
+    }
+
+    .user-header {
+        flex-direction: column;
+        gap: 10px;
+        text-align: center;
+        padding: 15px;
+    }
+
+    .user-info {
+        align-items: center;
+    }
+
+    body {
+        padding: 15px;
+    }
+
+    .logo {
+        width: 60px;
+        height: 60px;
+    }
 }

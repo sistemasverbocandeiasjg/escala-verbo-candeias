@@ -5,12 +5,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Sistema de Gestão</title>
-    <!-- Remover o estilo interno e adicionar o CSS externo -->
     <link rel="stylesheet" href="styles/login.css">
 </head>
 
 <body>
     <div class="login-container">
+        <!-- Logo Adicionada -->
+        <div class="logo-container">
+            <img src="images/logo_login.png" alt="Logo da Empresa" class="logo">
+        </div>
+
         <div class="login-box">
             <div class="login-header">
                 <h1>Sistema de Escala</h1>
@@ -41,9 +45,7 @@
         </div>
     </div>
 
-    <!-- Incluir primeiro o Supabase JS -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- Incluir seu arquivo supabase.js -->
     <script src="scripts/supabase.js"></script>
 
     <script>
